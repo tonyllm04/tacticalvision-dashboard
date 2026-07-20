@@ -8,14 +8,14 @@ import seaborn as sns
 from scipy.spatial import ConvexHull
 import time
 
-# Configuración de página de Streamlit
+# Configuracion de pagina de Streamlit
 st.set_page_config(
-    page_title="TacticalVision - Analítica Amateur",
+    page_title="TacticalVision - Analitica Amateur",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Inyección de estilos CSS personalizados para lograr un diseño profesional oscuro similar a index.html
+# Inyeccion de estilos CSS personalizados para lograr un diseño profesional oscuro
 st.markdown("""
     <style>
     .main {
@@ -52,19 +52,19 @@ st.markdown("""
 
 class HomographyTransformer:
     """
-    Clase matemática encargada de transformar las coordenadas de los píxeles de la cámara
-    al plano métrico bidimensional real del campo de juego (105m x 68m).
+    Clase matematica encargada de transformar las coordenadas de los pixeles de la camara
+    al plano metrico bidimensional real del campo de juego (105m x 68m).
     """
     def __init__(self):
-        # Puntos de origen típicos en una retransmisión de cámara táctica
+        # Puntos de origen tipicos en una retransmision de camara tactica
         src_points = np.float32([
-            [210, 450],   # Córner superior izquierdo en pantalla
-            [1070, 450],  # Córner superior derecho en pantalla
+            [210, 450],   # Corner superior izquierdo en pantalla
+            [1070, 450],  # Corner superior derecho en pantalla
             [50, 720],    # Esquina inferior izquierda en pantalla
             [1230, 720]   # Esquina inferior derecha en pantalla
         ])
         
-        # Puntos de destino en el plano real de fútbol 2D (Medidas estándar en metros)
+        # Puntos de destino en el plano real de futbol 2D (Medidas estandar en metros)
         dst_points = np.float32([
             [0, 0],       # Banda superior izquierda
             [105, 0],     # Banda superior derecha
@@ -72,7 +72,7 @@ class HomographyTransformer:
             [105, 68]     # Banda inferior derecha
         ])
         
-        # Calcular la matriz de homografía utilizando OpenCV
+        # Calcular la matriz de homografia utilizando OpenCV
         self.H, _ = cv2.findHomography(src_points, dst_points)
 
     def transform_point(self, u, v):
@@ -94,19 +94,19 @@ def draw_football_pitch(ax, slate_mode=True):
     rect = patches.Rectangle((0, 0), 105, 68, linewidth=2, edgecolor=line_color, facecolor=bg_color, zorder=1)
     ax.add_patch(rect)
     
-    # Línea de medio campo y círculo central
+    # Linea de medio campo y circulo central
     ax.plot([52.5, 52.5], [0, 68], color=line_color, linewidth=2, zorder=2)
     center_circle = patches.Circle((52.5, 34), 9.15, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(center_circle)
     ax.scatter(52.5, 34, color=line_color, s=20, zorder=3)
     
-    # Área de meta y penalty izquierda
+    # Area de meta y penalty izquierda
     ax.stroke_rect_left = patches.Rectangle((0, 13.84), 16.5, 40.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_rect_left)
     ax.stroke_small_left = patches.Rectangle((0, 24.84), 5.5, 18.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_small_left)
     
-    # Área de meta y penalty derecha
+    # Area de meta y penalty derecha
     ax.stroke_rect_right = patches.Rectangle((88.5, 13.84), 16.5, 40.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_rect_right)
     ax.stroke_small_right = patches.Rectangle((99.5, 24.84), 5.5, 18.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
@@ -116,27 +116,27 @@ def draw_football_pitch(ax, slate_mode=True):
     ax.scatter(11, 34, color=line_color, s=20, zorder=3)
     ax.scatter(94, 34, color=line_color, s=20, zorder=3)
     
-    # Arcos de área
+    # Arcos de area
     arc_left = patches.Arc((11, 34), 18.3, 18.3, theta1=-53, theta2=53, linewidth=2, color=line_color, zorder=2)
     arc_right = patches.Arc((94, 34), 18.3, 18.3, theta1=127, theta2=233, linewidth=2, color=line_color, zorder=2)
     ax.add_patch(arc_left)
     ax.add_patch(arc_right)
     
-    # Configuración de límites y visibilidad de ejes
+    # Configuracion de limites y visibilidad de ejes
     ax.set_xlim(-2, 107)
     ax.set_ylim(-2, 70)
     ax.axis('off')
 
 def generate_tactical_sequence(frames=120):
     """
-    Genera datos realistas de tracking en 2D que simulan una transición ofensiva.
+    Genera datos realistas de tracking en 2D que simulan una transicion ofensiva.
     """
     data = []
     np.random.seed(42)
     
     for f in range(frames):
         progress = f / frames
-        # Movimiento de balón
+        # Movimiento de balon
         ball_x = 35 + progress * 50 + np.sin(f*0.15) * 3
         ball_y = 20 + progress * 28 + np.cos(f*0.15) * 4
         
@@ -145,7 +145,7 @@ def generate_tactical_sequence(frames=120):
             'x': ball_x, 'y': ball_y, 'team': 'ball'
         })
         
-        # 11 Jugadores Locales (Posiciones tácticas en 4-4-2 replegando)
+        # 11 Jugadores Locales (Posiciones tacticas en 4-4-2 replegando)
         local_positions = [
             (12, 34), # Portero
             (28 + progress*8, 15 + np.sin(f*0.05)*3), 
@@ -168,7 +168,7 @@ def generate_tactical_sequence(frames=120):
                 'team': 'home'
             })
             
-        # 11 Jugadores Atacantes Rivales (Transición ofensiva)
+        # 11 Jugadores Atacantes Rivales (Transicion ofensiva)
         away_positions = [
             (92, 34), # Portero Rival
             (68 + progress*8, 10), 
@@ -193,23 +193,22 @@ def generate_tactical_sequence(frames=120):
             
     return pd.DataFrame(data)
 
-# Sidebar vacío para futuras utilidades de edición táctica
-st.sidebar.title("🕹️ Panel de Control")
-st.sidebar.markdown("*Espacio reservado para futuras utilidades de edición y exportación avanzada.*")
+# Panel de Control lateral limpio sin emoticonos ni texto descriptivo adicional
+st.sidebar.title("Panel de Control")
 
-# Inicialización de estados de sesión
+# Inicializacion de estados de sesion
 if 'processed' not in st.session_state:
     st.session_state.processed = False
     st.session_state.df = None
 
 if not st.session_state.processed:
-    st.title("🛡️ TacticalVision")
+    st.title("TacticalVision")
     st.caption("Prototipo de TFG - Canal de procesado telemétrico para analistas y entrenadores de fútbol base")
 
     col_main_left, col_main_right = st.columns([2, 1])
 
     with col_main_left:
-        st.markdown("### 📁 Entrada de Vídeo del Partido")
+        st.markdown("### Entrada de Vídeo del Partido")
         
         use_demo = st.checkbox("Usar Partido de Demostración (Recomendado para pruebas rápidas)", value=True)
         uploaded_file = None
@@ -221,7 +220,7 @@ if not st.session_state.processed:
             st.success("Se utilizará el generador matemático integrado con trayectorias de transición ofensiva coordinadas.")
 
         st.markdown("---")
-        st.markdown("### 📋 Configuración de Equipos")
+        st.markdown("### Configuración de Equipos")
         
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
@@ -230,43 +229,36 @@ if not st.session_state.processed:
             away_team_input = st.text_input("Equipo Rival (Visitante)", "Rayo Deportivo")
 
     with col_main_right:
-        st.markdown("### 🎓 Metodología Didáctica")
+        st.markdown("### Metodología Didáctica")
         st.info("El sistema traduce datos posicionales complejos a conceptos sencillos y consejos de entrenamiento prácticos adaptados a los equipos de fútbol base.")
 
-        level_select_input = st.radio(
-            "Nivel de Aclaraciones Tácticas:",
-            ('Básico / Educacional', 'Avanzado / Técnico'),
-            help="Modifica la terminología de las notas analíticas según el perfil del usuario final."
-        )
-
         st.markdown("###")
-        run_button = st.button("🚀 Ejecutar Pipeline Táctico", use_container_width=True)
+        run_button = st.button("Ejecutar Pipeline Táctico", use_container_width=True)
 
     if run_button:
         if not use_demo and uploaded_file is None:
             st.error("Por favor, selecciona un archivo de vídeo o marca la casilla para usar el partido de demostración.")
         else:
-            # Guardar configuración en la sesión para evitar pérdida de estado
+            # Guardar configuracion en la sesion para evitar perdida de estado
             st.session_state.home_team = home_team_input
             st.session_state.away_team = away_team_input
-            st.session_state.level_select = level_select_input
             st.session_state.home_color = "#10b981"  # Verde Esmeralda fijo
             st.session_state.away_color = "#f43f5e"  # Rosa Coral fijo
             
             # Ejecutar barra de carga simulando la inferencia
-            with st.status("🛠️ Ejecutando Pipeline Táctico...", expanded=True) as status:
-                st.write("🕵️ Cargando red neuronal YOLOv8...")
+            with st.status("Ejecutando Pipeline Táctico...", expanded=True) as status:
+                st.write("Cargando red neuronal YOLOv8...")
                 time.sleep(0.6)
-                st.write("🏃 Inicializando tracker multiobjeto ByteTrack...")
+                st.write("Inicializando tracker multiobjeto ByteTrack...")
                 time.sleep(0.5)
-                st.write("📐 Computando calibración de Homografía 2D...")
+                st.write("Computando calibración de Homografía 2D...")
                 time.sleep(0.5)
-                st.write("🟢 Clasificando equipos mediante segmentación cromática...")
+                st.write("Clasificando equipos mediante segmentación cromática...")
                 time.sleep(0.6)
-                st.write("📊 Consolidando métricas de rendimiento...")
+                st.write("Consolidando métricas de rendimiento...")
                 
                 st.session_state.df = generate_tactical_sequence()
-                status.update(label="¡Análisis completado de forma correcta!", state="complete")
+                status.update(label="Análisis completado de forma correcta", state="complete")
                 
             st.session_state.processed = True
             st.rerun()
@@ -275,16 +267,15 @@ else:
     # Recuperar variables del estado
     home_team = st.session_state.home_team
     away_team = st.session_state.away_team
-    level_select = st.session_state.level_select
     home_color = st.session_state.home_color
     away_color = st.session_state.away_color
     df = st.session_state.df
 
     # Encabezado del visor de resultados
-    st.title("🛡️ TacticalVision")
+    st.title("TacticalVision")
     st.caption(f"Análisis Activo: {home_team} vs {away_team}")
 
-    # Cómputo de posesión basado en proximidad de seguimiento
+    # Computo de posesion basado en proximidad de seguimiento
     frames_list = df['frame'].unique()
     possession_counter = {'home': 0, 'away': 0, 'disputed': 0}
     
@@ -308,7 +299,7 @@ else:
     poss_home = round((possession_counter['home'] / total_active_frames) * 100) if total_active_frames > 0 else 50
     poss_away = 100 - poss_home
 
-    # Fila superior de métricas clave
+    # Fila superior de metricas clave
     m1, m2, m3, m4 = st.columns(4)
     with m1:
         st.metric(f"Posesión {home_team}", f"{poss_home}%")
@@ -320,15 +311,15 @@ else:
         st.metric("Fidelidad Geométrica", "96.4%", help="Precisión obtenida tras la homografía lineal y corrección por lentes de gran angular")
 
     tab_projection, tab_heatmap, tab_stats = st.tabs([
-        "📊 Proyección Táctica Proporcional", 
-        "🔥 Mapas de Densidad (Heatmaps)", 
-        "📈 Métricas de Bloque y Amplitud"
+        "Proyección Táctica Proporcional", 
+        "Mapas de Densidad (Heatmaps)", 
+        "Métricas de Bloque y Amplitud"
     ])
 
     with tab_projection:
         st.subheader("Plano Métrico 2D Interactivo")
         
-        # Deslizador temporal para la navegación interactiva de fotogramas
+        # Deslizador temporal para la navegacion interactiva de fotogramas
         selected_frame = st.slider("Instante del Partido (Fotograma):", 
                                    min_value=int(df['frame'].min()), 
                                    max_value=int(df['frame'].max()), 
@@ -355,12 +346,12 @@ else:
             for _, row in away_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=8, ha='center', va='center', fontweight='bold', zorder=6)
                 
-            # Balón táctico
+            # Balon tactico
             ball_df = frame_df[frame_df['team'] == 'ball']
             if not ball_df.empty:
                 ax.scatter(ball_df['x'], ball_df['y'], color='#fbbf24', s=100, edgecolor='black', linewidth=1.5, label="Balón", zorder=7)
             
-            # Dibujo del Polígono de Bloque Defensivo (Convex Hull) de la línea local
+            # Dibujo del Poligono de Bloque Defensivo (Convex Hull) de la linea local
             if len(home_players) > 3:
                 try:
                     points = home_players[['x', 'y']].values
@@ -374,42 +365,25 @@ else:
             st.pyplot(fig)
             
         with col_pedagogic:
-            st.subheader("💡 Aclaración Táctica del Fotograma")
+            st.subheader("Aclaración Táctica del Fotograma")
             
-            if level_select == 'Básico / Educacional':
-                st.markdown(f"""
-                <div class="tactical-card">
-                    <h4>Concepto clave: Ocupación del Espacio</h4>
-                    <p>En este fotograma puedes observar cómo los círculos de tu equipo (<b>{home_team}</b>) están distribuidos por el campo.</p>
-                    <p><b>¿Qué debes buscar?</b></p>
-                    <ul>
-                        <li>Comprueba si hay zonas muy vacías del campo por las que el rival pueda atacar fácilmente.</li>
-                        <li>Observa la distancia entre tu defensa y tu delantera; si es muy grande, a tus centrocampistas les costará mucho trabajo defender.</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.success("""
-                    **Sugerencia de ejercicio para esta semana:**
-                    Practica rondos de posesión delimitados en espacios reducidos de 20x20 metros para entrenar la velocidad de pase bajo presión y mantener el bloque de juego junto.
-                """)
-            else:
-                st.markdown(f"""
-                <div class="tactical-card">
-                    <h4>Análisis Técnico: Línea de Bloque Defensivo</h4>
-                    <p>La línea punteada en el gráfico representa el <i>Convex Hull</i> o polígono envolvente de tu bloque defensivo (<b>{home_team}</b>).</p>
-                    <p><b>Métricas observadas en escena:</b></p>
-                    <ul>
-                        <li><b>Compactación espacial:</b> La amplitud del bloque se mantiene contenida en metros cuadrados, reduciendo los intervalos o pasillos interiores útiles para el rival.</li>
-                        <li><b>Basculación:</b> Ante la posición de ataque del rival, se observa una correcta orientación corporal de las ayudas tácticas hacia el sector fuerte del balón.</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.info("""
-                    **Indicación para el analista:**
-                    Si el polígono envolvente supera los 35 metros de ancho, se corre el riesgo de sufrir una ruptura de bloque en transiciones verticales. Se aconseja entrenar vigilancias defensivas en fase de posesión propia.
-                """)
+            st.markdown(f"""
+            <div class="tactical-card">
+                <h4>Análisis Técnico: Línea de Bloque Defensivo y Espacio</h4>
+                <p>La línea punteada en el gráfico representa el <i>Convex Hull</i> o polígono envolvente de tu bloque defensivo (<b>{home_team}</b>).</p>
+                <p><b>Métricas observadas en escena:</b></p>
+                <ul>
+                    <li><b>Ocupación del Espacio:</b> Comprueba la distribución espacial. Un bloque defensivo excesivamente estirado (amplitud mayor a 35m) facilita la aparición de pasillos de pase interiores que el rival puede explotar.</li>
+                    <li><b>Compactación espacial:</b> La amplitud del bloque se mantiene contenida en metros cuadrados, reduciendo los intervalos o pasillos interiores útiles para el rival.</li>
+                    <li><b>Basculación:</b> Ante la posición de ataque del rival, se observa una correcta orientación corporal de las ayudas tácticas hacia el sector fuerte del balón.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.info("""
+                **Recomendación Formativa:**
+                Practica rondos de posesión delimitados en espacios reducidos de 20x20 metros para entrenar la velocidad de pase bajo presión y mantener el bloque de juego junto. Si el polígono envolvente supera los 35 metros de ancho, se aconseja entrenar vigilancias defensivas en fase de posesión propia.
+            """)
 
     with tab_heatmap:
         st.subheader("Densidad de Ocupación Dinámica del Terreno de Juego")
@@ -434,32 +408,20 @@ else:
             st.pyplot(fig_heat)
             
         with col_heat_info:
-            st.subheader("💡 Interpretación del Mapa de Calor")
+            st.subheader("Interpretación del Mapa de Calor")
             
-            if level_select == 'Básico / Educacional':
-                st.markdown(f"""
-                <div class="tactical-card">
-                    <h4>¿Dónde jugamos más?</h4>
-                    <p>Las áreas iluminadas o más oscuras en el mapa de calor muestran dónde han pasado más tiempo tus jugadores del <b>{heatmap_team}</b>.</p>
-                    <p><b>Consejos sencillos:</b></p>
-                    <ul>
-                        <li>Si las manchas están muy de color en tu propia portería, significa que el equipo está jugando muy atrás y le cuesta salir.</li>
-                        <li>Si hay manchas fuertes en las bandas, estás usando bien la anchura del campo para atacar.</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="tactical-card">
-                    <h4>Análisis de Intervalos y Amplitud Táctica</h4>
-                    <p>El mapa de densidad de kernel (KDE) revela los focos de acumulación posicional y saturación del <b>{heatmap_team}</b>.</p>
-                    <p><b>Análisis estratégico:</b></p>
-                    <ul>
-                        <li><b>Saturación en Zona de Creación:</b> Permite contrastar si el volumen posicional está alineado con un modelo de salida limpia de balón o si se trata de retención estéril.</li>
-                        <li><b>Ataque a Medias Espacios (Half-Spaces):</b> Evalúa si los focos de densidad ofensiva se sitúan entre los carriles centrales y laterales, facilitando la desorganización defensiva del rival.</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="tactical-card">
+                <h4>Análisis de Intervalos y Amplitud Táctica</h4>
+                <p>El mapa de densidad de kernel (KDE) revela los focos de acumulación posicional y saturación del <b>{heatmap_team}</b>.</p>
+                <p><b>Análisis estratégico:</b></p>
+                <ul>
+                    <li><b>Distribución territorial:</b> Las áreas oscuras muestran dónde han pasado más tiempo tus jugadores. Si las manchas están concentradas en tu propia portería, significa que el equipo está replegado y le cuesta progresar.</li>
+                    <li><b>Ataque a Medias Espacios (Half-Spaces):</b> Evalúa si los focos de densidad ofensiva se sitúan entre los carriles centrales y laterales, facilitando la desorganización defensiva del rival.</li>
+                    <li><b>Uso de la amplitud:</b> Una mancha intensa en las bandas certifica una correcta utilización del ancho de campo para estirar las líneas defensivas rivales.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
 
     with tab_stats:
         st.subheader("Métricas de Rendimiento Colectivo")
@@ -475,22 +437,16 @@ else:
             st.dataframe(zone_data, use_container_width=True)
             
         with c2:
-            st.subheader("💡 Aclaración sobre la medición de la Posesión")
-            if level_select == 'Básico / Educacional':
-                st.info(f"""
-                    **Nota para el entrenador:**
-                    Esta posesión se mide buscando qué jugador está a menos de 8 metros del balón en cada momento. Si el balón está muy lejos de todos (en un despeje largo), el sistema cuenta ese tiempo como "Balón dividido" o sin dueño directo.
-                """)
-            else:
-                st.info(f"""
-                    **Nota técnica para el analista:**
-                    La posesión del balón se computa algorítmicamente mediante el cálculo de la distancia euclidiana en el plano proyectado por Homografía. Al superar el umbral de vecindad táctica, se asume inercia temporal para evitar el parpadeo en las transiciones de posesión.
-                """)
+            st.subheader("Aclaración sobre la medición de la Posesión")
+            st.info(f"""
+                **Nota Analítica de Posesión:**
+                La posesión se calcula mediante el rastreo algorítmico de la distancia euclidiana entre cada jugador y el balón en el plano proyectado por Homografía. Un jugador controla el esférico si se encuentra dentro de un radio inferior a 8 metros. Si el balón supera dicho umbral, el sistema computa el tiempo como balón dividido para evitar la inercia temporal y el parpadeo de datos en las transiciones rápidas o despejes largos.
+            """)
 
     st.markdown("---")
     col_reset_btn, _ = st.columns([1, 2])
     with col_reset_btn:
-        if st.button("🔄 Cargar Nuevo Vídeo / Reiniciar", use_container_width=True):
+        if st.button("Cargar Nuevo Vídeo / Reiniciar", use_container_width=True):
             st.session_state.processed = False
             st.session_state.df = None
             st.rerun()
