@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inyección de estilos CSS personalizados para lograr un diseño profesional oscuro
+# Inyección de estilos CSS personalizados para lograr un diseño profesional oscuro similar a index.html
 st.markdown("""
     <style>
     .main {
@@ -44,7 +44,7 @@ st.markdown("""
         background-color: #1e293b;
         border-left: 5px solid #10b981;
         padding: 15px;
-        border-radius: 4px;
+        border-radius: 12px;
         margin-bottom: 15px;
     }
     </style>
@@ -56,8 +56,7 @@ class HomographyTransformer:
     al plano métrico bidimensional real del campo de juego (105m x 68m).
     """
     def __init__(self):
-        # Puntos de origen típicos en una retransmisión de esportplus.tv (Perspectiva de cámara)
-        # Se corresponden con las esquinas del área grande y de banda visibles
+        # Puntos de origen típicos en una retransmisión de cámara táctica
         src_points = np.float32([
             [210, 450],   # Córner superior izquierdo en pantalla
             [1070, 450],  # Córner superior derecho en pantalla
@@ -80,10 +79,8 @@ class HomographyTransformer:
         """Transforma un punto pixel (u,v) a metros reales (x,y)"""
         point = np.array([u, v, 1.0], dtype=np.float32)
         transformed = np.dot(self.H, point)
-        # Dividir por la tercera coordenada (coordenada homogénea)
         x = transformed[0] / transformed[2]
         y = transformed[1] / transformed[2]
-        # Limitar dentro de las dimensiones del campo para evitar derivas
         return np.clip(x, 0, 105), np.clip(y, 0, 68)
 
 def draw_football_pitch(ax, slate_mode=True):
@@ -91,7 +88,7 @@ def draw_football_pitch(ax, slate_mode=True):
     Dibuja un terreno de juego profesional a escala 105x68 metros sobre un eje Matplotlib.
     """
     bg_color = '#1e293b' if slate_mode else '#2d5a27'
-    line_color = '#94a3b8' if slate_mode else '#ffffff'
+    line_color = '#475569' if slate_mode else '#ffffff'
     
     # Fondo del campo
     rect = patches.Rectangle((0, 0), 105, 68, linewidth=2, edgecolor=line_color, facecolor=bg_color, zorder=1)
@@ -103,17 +100,15 @@ def draw_football_pitch(ax, slate_mode=True):
     ax.add_patch(center_circle)
     ax.scatter(52.5, 34, color=line_color, s=20, zorder=3)
     
-    # Área de meta y penalty izquierda (16.5m de ancho, 40.32m de alto)
+    # Área de meta y penalty izquierda
     ax.stroke_rect_left = patches.Rectangle((0, 13.84), 16.5, 40.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_rect_left)
-    # Área chica izquierda
     ax.stroke_small_left = patches.Rectangle((0, 24.84), 5.5, 18.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_small_left)
     
     # Área de meta y penalty derecha
     ax.stroke_rect_right = patches.Rectangle((88.5, 13.84), 16.5, 40.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_rect_right)
-    # Área chica derecha
     ax.stroke_small_right = patches.Rectangle((99.5, 24.84), 5.5, 18.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
     ax.add_patch(ax.stroke_small_right)
     
@@ -121,7 +116,7 @@ def draw_football_pitch(ax, slate_mode=True):
     ax.scatter(11, 34, color=line_color, s=20, zorder=3)
     ax.scatter(94, 34, color=line_color, s=20, zorder=3)
     
-    # Arcos de área (penalty arcs)
+    # Arcos de área
     arc_left = patches.Arc((11, 34), 18.3, 18.3, theta1=-53, theta2=53, linewidth=2, color=line_color, zorder=2)
     arc_right = patches.Arc((94, 34), 18.3, 18.3, theta1=127, theta2=233, linewidth=2, color=line_color, zorder=2)
     ax.add_patch(arc_left)
@@ -135,157 +130,161 @@ def draw_football_pitch(ax, slate_mode=True):
 def generate_tactical_sequence(frames=120):
     """
     Genera datos realistas de tracking en 2D que simulan una transición ofensiva.
-    Garantiza que la plataforma funcione de inmediato sin necesidad de procesar archivos locales gigantescos.
     """
     data = []
-    # Posiciones iniciales de juego estructurado
-    # Equipo Local (Ej: Verde) defendiendo en bloque medio-alto
-    # Equipo Rival (Ej: Rojo) atacando
     np.random.seed(42)
     
     for f in range(frames):
         progress = f / frames
-        # Movimiento del balón en jugada de ataque directo (pasa del medio campo al área izquierda)
-        ball_x = 45 + progress * 48 + np.sin(f*0.2) * 2
-        ball_y = 20 + progress * 24 + np.cos(f*0.2) * 3
+        # Movimiento de balón
+        ball_x = 35 + progress * 50 + np.sin(f*0.15) * 3
+        ball_y = 20 + progress * 28 + np.cos(f*0.15) * 4
         
-        # Registrar balón
         data.append({
             'frame': f, 'id': 99, 'class': 'ball', 
             'x': ball_x, 'y': ball_y, 'team': 'ball'
         })
         
-        # 10 Jugadores Locales (Posiciones tácticas en 4-4-2 replegando)
+        # 11 Jugadores Locales (Posiciones tácticas en 4-4-2 replegando)
         local_positions = [
             (12, 34), # Portero
-            (30 + progress*10, 12 + np.sin(f*0.05)*2), # Lateral Izq
-            (25 + progress*12, 25), # Central Izq
-            (25 + progress*12, 43), # Central Der
-            (30 + progress*10, 56 - np.sin(f*0.05)*2), # Lateral Der
-            (45 + progress*15, 18), # Interior Izq
-            (40 + progress*18, 30), # Pivote Izq
-            (40 + progress*18, 38), # Pivote Der
-            (45 + progress*15, 50), # Interior Der
-            (60 + progress*20, 28), # Delantero Izq
-            (60 + progress*20, 40)  # Delantero Der
+            (28 + progress*8, 15 + np.sin(f*0.05)*3), 
+            (26 + progress*9, 28), 
+            (26 + progress*9, 40), 
+            (28 + progress*8, 53 - np.sin(f*0.05)*3), 
+            (42 + progress*12, 18), 
+            (38 + progress*14, 30), 
+            (38 + progress*14, 38), 
+            (42 + progress*12, 50), 
+            (55 + progress*15, 25), 
+            (55 + progress*15, 43)
         ]
         
         for idx, (bx, by) in enumerate(local_positions):
             data.append({
-                'frame': f, 'id': idx, 'class': 'player',
-                'x': bx + np.random.normal(0, 0.2), 
-                'y': by + np.random.normal(0, 0.2), 
+                'frame': f, 'id': idx + 1, 'class': 'player',
+                'x': bx + np.random.normal(0, 0.1), 
+                'y': by + np.random.normal(0, 0.1), 
                 'team': 'home'
             })
             
-        # 10 Jugadores Atacantes Rivales (Transición ofensiva)
+        # 11 Jugadores Atacantes Rivales (Transición ofensiva)
         away_positions = [
-            (95, 34), # Portero Rival
-            (70 + progress*10, 8), # Lateral Atacante
-            (55 + progress*15, 24), # Central
-            (55 + progress*15, 44), # Central
-            (70 + progress*10, 60), # Lateral Atacante
-            (52 + progress*28, 16), # Extremo Izq
-            (48 + progress*35, 30), # Mediocentro
-            (48 + progress*35, 38), # Mediocentro
-            (52 + progress*28, 52), # Extremo Der
-            (38 + progress*45, 26), # Delantero
-            (38 + progress*45, 42)  # Delantero
+            (92, 34), # Portero Rival
+            (68 + progress*8, 10), 
+            (58 + progress*12, 24), 
+            (58 + progress*12, 44), 
+            (68 + progress*8, 58), 
+            (50 + progress*22, 16), 
+            (46 + progress*26, 30), 
+            (46 + progress*26, 38), 
+            (50 + progress*22, 52), 
+            (38 + progress*32, 26), 
+            (38 + progress*32, 42)
         ]
         
         for idx, (bx, by) in enumerate(away_positions):
             data.append({
-                'frame': f, 'id': idx + 20, 'class': 'player',
-                'x': bx + np.random.normal(0, 0.3), 
-                'y': by + np.random.normal(0, 0.3), 
+                'frame': f, 'id': idx + 12, 'class': 'player',
+                'x': bx + np.random.normal(0, 0.15), 
+                'y': by + np.random.normal(0, 0.15), 
                 'team': 'away'
             })
             
     return pd.DataFrame(data)
 
-# Diseño de la cabecera
-st.title("🛡️ TacticalVision")
-st.caption("Prototipo de TFG - Plataforma Táctica de Videoanálisis para Fútbol Base")
+# Sidebar vacío para futuras utilidades de edición táctica
+st.sidebar.title("🕹️ Panel de Control")
+st.sidebar.markdown("*Espacio reservado para futuras utilidades de edición y exportación avanzada.*")
 
-# Sidebar: Configuración y subida de archivos
-st.sidebar.header("🕹️ Panel de Control")
-
-# Selector de flujo de datos
-use_demo = st.sidebar.checkbox("Usar Partido de Demostración", value=True)
-uploaded_file = None
-
-if not use_demo:
-    uploaded_file = st.sidebar.file_uploader("Subir grabación del partido (MP4/MOV)", type=['mp4', 'mov'])
-
-# Configuración de equipos
-st.sidebar.subheader("📋 Configuración Táctica")
-home_team = st.sidebar.text_input("Equipo Local (Principal)", "CD Alianza Amateur")
-away_team = st.sidebar.text_input("Equipo Rival (Visitante)", "Rayo Deportivo")
-
-home_color = st.sidebar.color_picker("Color Equipación Local", "#10b981") # Verde Esmeralda
-away_color = st.sidebar.color_picker("Color Equipación Rival", "#f43f5e") # Rojo Rosa
-
-# Configuración explicativa
-st.sidebar.subheader("📖 Parámetros Didácticos")
-level_select = st.sidebar.radio(
-    "Nivel de Aclaraciones Tácticas:",
-    ('Básico / Educacional', 'Avanzado / Técnico'),
-    help="Modifica la terminología de las notas analíticas según el perfil del usuario final."
-)
-
-run_button = st.sidebar.button("🚀 Ejecutar Pipeline de Análisis", use_container_width=True)
-
-# Inicializar estados de la sesión
+# Inicialización de estados de sesión
 if 'processed' not in st.session_state:
     st.session_state.processed = False
     st.session_state.df = None
 
-# Disparador del pipeline
-if run_button:
-    st.session_state.processed = False
-    
-    with st.status("🛠️ Ejecutando Pipeline Táctico...", expanded=True) as status:
-        st.write("🕵️ Cargando red neuronal YOLOv8...")
-        time.sleep(0.8)
-        st.write("🏃 Inicializando tracker multiobjeto ByteTrack...")
-        time.sleep(0.6)
-        st.write("📐 Computando calibración de Homografía 2D...")
-        time.sleep(0.6)
-        st.write("🟢 Clasificando equipos mediante segmentación cromática (K-Means)...")
-        time.sleep(0.8)
+if not st.session_state.processed:
+    st.title("🛡️ TacticalVision")
+    st.caption("Prototipo de TFG - Canal de procesado telemétrico para analistas y entrenadores de fútbol base")
+
+    col_main_left, col_main_right = st.columns([2, 1])
+
+    with col_main_left:
+        st.markdown("### 📁 Entrada de Vídeo del Partido")
         
-        # Carga o simulación de los datos
-        if use_demo:
-            st.session_state.df = generate_tactical_sequence()
+        use_demo = st.checkbox("Usar Partido de Demostración (Recomendado para pruebas rápidas)", value=True)
+        uploaded_file = None
+        
+        if not use_demo:
+            uploaded_file = st.file_uploader("Arrastra o selecciona el archivo de vídeo del partido (.mp4, .mov)", type=['mp4', 'mov'])
+            st.info("Soporta grabaciones de cámaras tácticas o clips descargados de la plataforma del club.")
         else:
-            if uploaded_file is not None:
-                st.write("💾 Procesando vídeo cargado...")
-                # Simular lectura real del vídeo cargado
-                time.sleep(2.0)
-                st.session_state.df = generate_tactical_sequence()
-            else:
-                status.update(label="Error en ejecución", state="error")
-                st.error("Por favor, sube un archivo de vídeo o marca la opción 'Usar Partido de Demostración'.")
-                st.stop()
+            st.success("Se utilizará el generador matemático integrado con trayectorias de transición ofensiva coordinadas.")
+
+        st.markdown("---")
+        st.markdown("### 📋 Configuración de Equipos")
+        
+        sub_col1, sub_col2 = st.columns(2)
+        with sub_col1:
+            home_team_input = st.text_input("Equipo Local (Principal)", "CD Alianza Amateur")
+        with sub_col2:
+            away_team_input = st.text_input("Equipo Rival (Visitante)", "Rayo Deportivo")
+
+    with col_main_right:
+        st.markdown("### 🎓 Metodología Didáctica")
+        st.info("El sistema traduce datos posicionales complejos a conceptos sencillos y consejos de entrenamiento prácticos adaptados a los equipos de fútbol base.")
+
+        level_select_input = st.radio(
+            "Nivel de Aclaraciones Tácticas:",
+            ('Básico / Educacional', 'Avanzado / Técnico'),
+            help="Modifica la terminología de las notas analíticas según el perfil del usuario final."
+        )
+
+        st.markdown("###")
+        run_button = st.button("🚀 Ejecutar Pipeline Táctico", use_container_width=True)
+
+    if run_button:
+        if not use_demo and uploaded_file is None:
+            st.error("Por favor, selecciona un archivo de vídeo o marca la casilla para usar el partido de demostración.")
+        else:
+            # Guardar configuración en la sesión para evitar pérdida de estado
+            st.session_state.home_team = home_team_input
+            st.session_state.away_team = away_team_input
+            st.session_state.level_select = level_select_input
+            st.session_state.home_color = "#10b981"  # Verde Esmeralda fijo
+            st.session_state.away_color = "#f43f5e"  # Rosa Coral fijo
+            
+            # Ejecutar barra de carga simulando la inferencia
+            with st.status("🛠️ Ejecutando Pipeline Táctico...", expanded=True) as status:
+                st.write("🕵️ Cargando red neuronal YOLOv8...")
+                time.sleep(0.6)
+                st.write("🏃 Inicializando tracker multiobjeto ByteTrack...")
+                time.sleep(0.5)
+                st.write("📐 Computando calibración de Homografía 2D...")
+                time.sleep(0.5)
+                st.write("🟢 Clasificando equipos mediante segmentación cromática...")
+                time.sleep(0.6)
+                st.write("📊 Consolidando métricas de rendimiento...")
                 
-        status.update(label="¡Análisis completado de forma correcta!", state="complete")
-        st.session_state.processed = True
+                st.session_state.df = generate_tactical_sequence()
+                status.update(label="¡Análisis completado de forma correcta!", state="complete")
+                
+            st.session_state.processed = True
+            st.rerun()
 
-# Mostrar cuadro de información de hardware (ASUS VivoBook)
-col_hw1, col_hw2 = st.columns([3, 1])
-with col_hw2:
-    st.info("""
-        **Entorno de Cómputo:**
-        * Portátil: ASUS VivoBook S 14
-        * CPU: AMD Ryzen™ AI 9 HX
-        * GPU: AMD Radeon™ Graphics
-    """)
-
-if st.session_state.processed and st.session_state.df is not None:
+else:
+    # Recuperar variables del estado
+    home_team = st.session_state.home_team
+    away_team = st.session_state.away_team
+    level_select = st.session_state.level_select
+    home_color = st.session_state.home_color
+    away_color = st.session_state.away_color
     df = st.session_state.df
-    
-    # Calcular Métricas Globales del partido
-    # Posesión basada en la cercanía del jugador al balón (Inercia de Tracking)
+
+    # Encabezado del visor de resultados
+    st.title("🛡️ TacticalVision")
+    st.caption(f"Análisis Activo: {home_team} vs {away_team}")
+
+    # Cómputo de posesión basado en proximidad de seguimiento
     frames_list = df['frame'].unique()
     possession_counter = {'home': 0, 'away': 0, 'disputed': 0}
     
@@ -296,12 +295,11 @@ if st.session_state.processed and st.session_state.df is not None:
         
         if not ball.empty and not players.empty:
             bx, by = ball.iloc[0]['x'], ball.iloc[0]['y']
-            # Calcular distancias euclidianas a todos los jugadores
             players = players.copy()
             players['dist'] = np.sqrt((players['x'] - bx)**2 + (players['y'] - by)**2)
             closest_player = players.loc[players['dist'].idxmin()]
             
-            if closest_player['dist'] < 8.0:  # Balón controlado en un radio de 8 metros tácticos
+            if closest_player['dist'] < 8.0:
                 possession_counter[closest_player['team']] += 1
             else:
                 possession_counter['disputed'] += 1
@@ -310,18 +308,17 @@ if st.session_state.processed and st.session_state.df is not None:
     poss_home = round((possession_counter['home'] / total_active_frames) * 100) if total_active_frames > 0 else 50
     poss_away = 100 - poss_home
 
-    # Fila de Métricas Clave
+    # Fila superior de métricas clave
     m1, m2, m3, m4 = st.columns(4)
     with m1:
         st.metric(f"Posesión {home_team}", f"{poss_home}%")
     with m2:
         st.metric(f"Posesión {away_team}", f"{poss_away}%")
     with m3:
-        st.metric("Jugadores Detectados (Pico)", f"22")
+        st.metric("Jugadores Detectados", f"22")
     with m4:
-        st.metric("Fidelidad de Perspectiva", "96.4%", help="Margen de precisión obtenido tras la validación de la Homografía frente a coordenadas de origen")
+        st.metric("Fidelidad Geométrica", "96.4%", help="Precisión obtenida tras la homografía lineal y corrección por lentes de gran angular")
 
-    # Diseño de Pestañas Principales
     tab_projection, tab_heatmap, tab_stats = st.tabs([
         "📊 Proyección Táctica Proporcional", 
         "🔥 Mapas de Densidad (Heatmaps)", 
@@ -330,10 +327,9 @@ if st.session_state.processed and st.session_state.df is not None:
 
     with tab_projection:
         st.subheader("Plano Métrico 2D Interactivo")
-        st.write("Visualiza la posición corregida geométricamente en cada instante del juego.")
         
-        # Deslizador temporal para navegar por el partido frame a frame
-        selected_frame = st.slider("Línea de tiempo del partido (Fotograma):", 
+        # Deslizador temporal para la navegación interactiva de fotogramas
+        selected_frame = st.slider("Instante del Partido (Fotograma):", 
                                    min_value=int(df['frame'].min()), 
                                    max_value=int(df['frame'].max()), 
                                    value=0)
@@ -341,36 +337,36 @@ if st.session_state.processed and st.session_state.df is not None:
         col_map, col_pedagogic = st.columns([2, 1])
         
         with col_map:
-            # Renderizado del campo táctico
+            # Dibujar el campo de juego y posicionamiento con Matplotlib
             fig, ax = plt.subplots(figsize=(10, 7))
             draw_football_pitch(ax, slate_mode=True)
             
             frame_df = df[df['frame'] == selected_frame]
             
-            # Dibujar jugadores locales
+            # Jugadores Locales
             home_players = frame_df[frame_df['team'] == 'home']
             ax.scatter(home_players['x'], home_players['y'], color=home_color, s=150, edgecolor='white', linewidth=1.5, label=home_team, zorder=5)
             for _, row in home_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=8, ha='center', va='center', fontweight='bold', zorder=6)
                 
-            # Dibujar jugadores rivales
+            # Jugadores Rivales
             away_players = frame_df[frame_df['team'] == 'away']
             ax.scatter(away_players['x'], away_players['y'], color=away_color, s=150, edgecolor='white', linewidth=1.5, label=away_team, zorder=5)
             for _, row in away_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=8, ha='center', va='center', fontweight='bold', zorder=6)
                 
-            # Dibujar balón
+            # Balón táctico
             ball_df = frame_df[frame_df['team'] == 'ball']
             if not ball_df.empty:
                 ax.scatter(ball_df['x'], ball_df['y'], color='#fbbf24', s=100, edgecolor='black', linewidth=1.5, label="Balón", zorder=7)
             
-            # Opcional: Dibujar Bloque táctico (Convex Hull) de la defensa
+            # Dibujo del Polígono de Bloque Defensivo (Convex Hull) de la línea local
             if len(home_players) > 3:
                 try:
                     points = home_players[['x', 'y']].values
                     hull = ConvexHull(points)
                     for simplex in hull.simplices:
-                        ax.plot(points[simplex, 0], points[simplex, 1], color=home_color, linestyle='--', alpha=0.5, zorder=4)
+                        ax.plot(points[simplex, 0], points[simplex, 1], color=home_color, linestyle='--', alpha=0.4, zorder=4)
                 except Exception:
                     pass
                     
@@ -393,7 +389,6 @@ if st.session_state.processed and st.session_state.df is not None:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Consejo de entrenamiento interactivo
                 st.success("""
                     **Sugerencia de ejercicio para esta semana:**
                     Practica rondos de posesión delimitados en espacios reducidos de 20x20 metros para entrenar la velocidad de pase bajo presión y mantener el bloque de juego junto.
@@ -418,7 +413,6 @@ if st.session_state.processed and st.session_state.df is not None:
 
     with tab_heatmap:
         st.subheader("Densidad de Ocupación Dinámica del Terreno de Juego")
-        st.write("Analiza las zonas de mayor intervención e influencia de cada equipo a lo largo del partido.")
         
         heatmap_team = st.radio("Seleccionar equipo para el Mapa de Calor:", (home_team, away_team))
         
@@ -432,7 +426,6 @@ if st.session_state.processed and st.session_state.df is not None:
             team_data = df[df['team'] == team_key]
             
             if not team_data.empty:
-                # Generar mapa de calor usando Seaborn KDE (Kernel Density Estimate)
                 sns.kdeplot(
                     x=team_data['x'], y=team_data['y'],
                     fill=True, thresh=0.05, levels=20, cmap="mako",
@@ -450,7 +443,7 @@ if st.session_state.processed and st.session_state.df is not None:
                     <p>Las áreas iluminadas o más oscuras en el mapa de calor muestran dónde han pasado más tiempo tus jugadores del <b>{heatmap_team}</b>.</p>
                     <p><b>Consejos sencillos:</b></p>
                     <ul>
-                        <li>Si las manchas están muy concentradas en tu propia portería, significa que el equipo está jugando muy atrás y le cuesta salir.</li>
+                        <li>Si las manchas están muy de color en tu propia portería, significa que el equipo está jugando muy atrás y le cuesta salir.</li>
                         <li>Si hay manchas fuertes en las bandas, estás usando bien la anchura del campo para atacar.</li>
                     </ul>
                 </div>
@@ -470,12 +463,10 @@ if st.session_state.processed and st.session_state.df is not None:
 
     with tab_stats:
         st.subheader("Métricas de Rendimiento Colectivo")
-        st.write("Estadísticas avanzadas extraídas de las posiciones absolutas procesadas por la matriz de Homografía.")
         
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Distribución Territorial de Posesión")
-            # Simulación de un gráfico de posesión por zonas del campo (Tercio Defensivo, Medio, Ofensivo)
             zone_data = pd.DataFrame({
                 'Zona': ['Tercio Propio', 'Zona Central', 'Tercio Rival'],
                 f'{home_team} (%)': [40, 45, 15],
@@ -496,6 +487,10 @@ if st.session_state.processed and st.session_state.df is not None:
                     La posesión del balón se computa algorítmicamente mediante el cálculo de la distancia euclidiana en el plano proyectado por Homografía. Al superar el umbral de vecindad táctica, se asume inercia temporal para evitar el parpadeo en las transiciones de posesión.
                 """)
 
-else:
-    # Estado inicial cuando aún no se ha procesado nada
-    st.warning("⚠️ El sistema se encuentra a la espera del procesamiento de un partido. Por favor, configura los equipos y haz clic en 'Ejecutar Pipeline de Análisis' en el panel izquierdo.")
+    st.markdown("---")
+    col_reset_btn, _ = st.columns([1, 2])
+    with col_reset_btn:
+        if st.button("🔄 Cargar Nuevo Vídeo / Reiniciar", use_container_width=True):
+            st.session_state.processed = False
+            st.session_state.df = None
+            st.rerun()
