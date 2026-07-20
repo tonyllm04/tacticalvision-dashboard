@@ -122,7 +122,7 @@ def draw_football_pitch(ax, slate_mode=True):
     ax.add_patch(arc_left)
     ax.add_patch(arc_right)
     
-    # Configuracion de limites y visibilidad de ejes
+    # Configuration de limites y visibilidad de ejes
     ax.set_xlim(-2, 107)
     ax.set_ylim(-2, 70)
     ax.axis('off')
@@ -210,14 +210,9 @@ if not st.session_state.processed:
     with col_main_left:
         st.markdown("### Entrada de Vídeo del Partido")
         
-        use_demo = st.checkbox("Usar Partido de Demostración (Recomendado para pruebas rápidas)", value=True)
-        uploaded_file = None
-        
-        if not use_demo:
-            uploaded_file = st.file_uploader("Arrastra o selecciona el archivo de vídeo del partido (.mp4, .mov)", type=['mp4', 'mov'])
-            st.info("Soporta grabaciones de cámaras tácticas o clips descargados de la plataforma del club.")
-        else:
-            st.success("Se utilizará el generador matemático integrado con trayectorias de transición ofensiva coordinadas.")
+        # El cargador de archivos de video siempre está activo de manera obligatoria y fija
+        uploaded_file = st.file_uploader("Arrastra o selecciona el archivo de vídeo del partido (.mp4, .mov)", type=['mp4', 'mov'])
+        st.info("Soporta grabaciones de cámaras tácticas o clips descargados de la plataforma del club.")
 
         st.markdown("---")
         st.markdown("### Configuración de Equipos")
@@ -236,8 +231,8 @@ if not st.session_state.processed:
         run_button = st.button("Ejecutar Pipeline Táctico", use_container_width=True)
 
     if run_button:
-        if not use_demo and uploaded_file is None:
-            st.error("Por favor, selecciona un archivo de vídeo o marca la casilla para usar el partido de demostración.")
+        if uploaded_file is None:
+            st.error("Por favor, selecciona un archivo de vídeo (.mp4 o .mov) para poder iniciar el análisis táctico.")
         else:
             # Guardar configuracion en la sesion para evitar perdida de estado
             st.session_state.home_team = home_team_input
