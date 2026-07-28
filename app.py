@@ -217,44 +217,35 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
     def process_player_movement(group):
         group = group.sort_values('frame').copy()
         
-        # Diferencia de fotogramas entre detecciones
-        frame_diff = group['frame'].diff()
-        
-        # Suavizado ligero (reduce jitter sin eliminar movimiento real)
+        # Suavizado ligero
         group['x_smooth'] = group['x'].rolling(window=5, min_periods=1, center=True).mean()
         group['y_smooth'] = group['y'].rolling(window=5, min_periods=1, center=True).mean()
         
-        # Distancia entre fotogramas consecutivos
+        # Distancia entre registros consecutivos del mismo ID
         dx = group['x_smooth'].diff()
         dy = group['y_smooth'].diff()
-        step_px = np.sqrt(dx**2 + dy**2)
+        step_px = np.sqrt(dx**2 + dy**2).fillna(0.0)
         
-        # Eliminar NaN inicial
-        step_px = step_px.fillna(0.0)
+        # Filtro de saltos de tracking
+        UMBRAL_SALTO_TRACKING = 120.0  # antes 30
         
-        # SOLO sumar si los frames son consecutivos
-        is_consecutive = (frame_diff == 1)
+        # Filtro de ruido
+        UMBRAL_RUIDO = 0.5             # antes 0.8
         
-        # Eliminar saltos de tracking (reaparición/cambio de ID)
-        UMBRAL_SALTO_TRACKING = 30.0  # píxeles por frame
-        valid_jump = (step_px <= UMBRAL_SALTO_TRACKING)
+        valid_jump = step_px <= UMBRAL_SALTO_TRACKING
+        valid_noise = step_px >= UMBRAL_RUIDO
         
-        # Eliminar ruido estático del detector
-        UMBRAL_RUIDO = 0.8  # píxeles
-        valid_noise = (step_px >= UMBRAL_RUIDO)
-        
-        # Conversión píxel -> metro (misma calibración que tu código bueno)
+        # Conversión píxel -> metro
         K_PIXELS_TO_METERS = 0.025
         step_m = step_px * K_PIXELS_TO_METERS
         
-        # Distancia válida
+        # IMPORTANTE: ya NO exigimos frame_diff == 1
         group['distancia_m'] = np.where(
-            is_consecutive & valid_jump & valid_noise,
+            valid_jump & valid_noise,
             step_m,
             0.0
         )
         
-        group['distancia_m'] = group['distancia_m'].fillna(0.0)
         return group
 
     # Procesar movimiento de jugadores
