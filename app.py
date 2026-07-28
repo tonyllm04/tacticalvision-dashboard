@@ -369,7 +369,7 @@ if not st.session_state.processed:
                 time.sleep(0.5)
                 st.write("5. Computando centroides, distancias y posesión con inercia...")
                 
-                raw_df = generate_tactical_sequence(120)
+                raw_df = generate_tactical_sequence(3000)
                 metrics = compute_distances_and_metrics(raw_df)
                 
                 st.session_state.df = raw_df
