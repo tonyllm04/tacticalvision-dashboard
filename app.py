@@ -221,25 +221,16 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
         group['x_smooth'] = group['x'].rolling(window=5, min_periods=1, center=True).mean()
         group['y_smooth'] = group['y'].rolling(window=5, min_periods=1, center=True).mean()
         
-        # Distancia entre registros consecutivos del mismo ID
         dx = group['x_smooth'].diff()
         dy = group['y_smooth'].diff()
-        step_px = np.sqrt(dx**2 + dy**2).fillna(0.0)
-        
-        # Filtro de saltos de tracking
-        UMBRAL_SALTO_TRACKING = 120.0  # antes 30
-        
-        # Filtro de ruido
-        UMBRAL_RUIDO = 0.5             # antes 0.8
-        
-        valid_jump = step_px <= UMBRAL_SALTO_TRACKING
-        valid_noise = step_px >= UMBRAL_RUIDO
-        
-        # Conversión píxel -> metro
-        K_PIXELS_TO_METERS = 0.025
-        step_m = step_px * K_PIXELS_TO_METERS
-        
-        # IMPORTANTE: ya NO exigimos frame_diff == 1
+        step_m = np.sqrt(dx**2 + dy**2).fillna(0.0)
+
+        UMBRAL_SALTO_TRACKING = 1.2   # metros por frame
+        UMBRAL_RUIDO = 0.01           # 1 cm
+
+        valid_jump = step_m <= UMBRAL_SALTO_TRACKING
+        valid_noise = step_m >= UMBRAL_RUIDO
+
         group['distancia_m'] = np.where(
             valid_jump & valid_noise,
             step_m,
