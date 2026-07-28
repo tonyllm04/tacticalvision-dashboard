@@ -205,26 +205,25 @@ def compute_distances_and_metrics(df):
     Calcula distancias recorridas (filtrando saltos y ruido), centroides, 
     distancia inter-centroides y posesión por inercia temporal.
     """
-    # 1. Distancias recorridas
-    players_df = df[df['class'] == 'player'].sort_values(['id', 'frame']).copy()
-    players_df['prev_x'] = players_df.groupby('id')['x'].shift(1)
-    players_df['prev_y'] = players_df.groupby('id')['y'].shift(1)
+    # 1. Distancias recorridas corregidas según las columnas reales
+    df['dx'] = df.groupby('id')['x'].diff()
+    df['dy'] = df.groupby('id')['y'].diff()
+    df['distancia_m'] = np.sqrt(df['dx']**2 + df['dy']**2)
+
+    # Umbrales ajustados para METROS por frame (asumiendo 25 FPS):
+    umbral_salto_metros = 1.2      # Más de 1.2m en 1/25s es un error de tracking
+    umbral_ruido_estatico_m = 0.01 # Menos de 1cm por frame es ruido estático
+
+    df.loc[df['distancia_m'] > umbral_salto_metros, 'distancia_m'] = 0
+    df.loc[df['distancia_m'] < umbral_ruido_estatico_m, 'distancia_m'] = 0
+    df['distancia_m'] = df['distancia_m'].fillna(0)
+
+    # Totales por equipo y por jugador
+    team_distances = df[df['class'] == 'player'].groupby('team')['distancia_m'].sum().to_dict()
     
-    players_df['dist_step'] = np.sqrt(
-        (players_df['x'] - players_df['prev_x'])**2 + 
-        (players_df['y'] - players_df['prev_y'])**2
-    )
-    
-    # Filtrado de saltos de tracking (>15m) y temblor de cámara (<0.08m)
-    players_df['dist_step'] = players_df['dist_step'].apply(
-        lambda d: 0.0 if (pd.isna(d) or d < 0.08 or d > 15.0) else d
-    )
-    
-    player_distances = players_df.groupby(['id', 'team'])['dist_step'].sum().reset_index()
-    player_distances.columns = ['id', 'team', 'dist_meters']
-    
-    team_distances = player_distances.groupby('team')['dist_meters'].sum().to_dict()
-    
+    player_distances = df[df['class'] == 'player'].groupby(['id', 'team'])['distancia_m'].sum().reset_index()
+    player_distances.rename(columns={'distancia_m': 'dist_meters'}, inplace=True)
+
     # 2. Centroides e Inter-distancia por frame
     player_data = df[df['class'] == 'player']
     centroids = player_data.groupby(['frame', 'team'])[['x', 'y']].mean().reset_index()
@@ -456,7 +455,6 @@ else:
         with col_pedagogic:
             st.subheader("Análisis Táctico de Centroides")
             
-            # Obtener datos del centroide en el frame actual
             inter_frame = metrics['inter_df'][metrics['inter_df']['frame'] == selected_frame]
             curr_inter_dist = inter_frame['inter_distance'].values[0] if not inter_frame.empty else 0.0
 
@@ -496,18 +494,16 @@ else:
             
             if heatmap_choice == home_team:
                 team_data = df[df['team'] == 'home']
-                cmap_choice = "emerald" if hasattr(sns, "color_palette") else "viridis"
                 color_theme = "mako"
             elif heatmap_choice == away_team:
                 team_data = df[df['team'] == 'away']
                 color_theme = "rocket"
             else:
-                # Filtrar balón parado para no falsear el mapa con saques de centro/puerta
                 ball_data = df[df['class'] == 'ball'].copy()
                 ball_data['prev_x'] = ball_data['x'].shift(1)
                 ball_data['prev_y'] = ball_data['y'].shift(1)
                 ball_data['speed'] = np.sqrt((ball_data['x'] - ball_data['prev_x'])**2 + (ball_data['y'] - ball_data['prev_y'])**2)
-                team_data = ball_data[ball_data['speed'] > 0.15] # Solo cuando el balón Rueda/Vuela
+                team_data = ball_data[ball_data['speed'] > 0.15]
                 color_theme = "flare"
             
             if not team_data.empty and len(team_data) > 5:
@@ -601,7 +597,7 @@ else:
         with zone_col2:
             st.info("""
                 **Nota sobre el cálculo de Distancias y Posesión:**  
-                * **Distancia métrica:** La calibración por Homografía convierte la traslación de píxeles a metros reales sobre un plano corregido de 105x68m. Se aplica un filtro que descarta desplazamientos menores a 8cm por frame (ruido de la caja de detección) y mayores a 15 metros por frame (interrupciones de seguimiento).
+                * **Distancia métrica:** La calibración por Homografía convierte la traslación de píxeles a metros reales sobre un plano corregido de 105x68m. Se aplica un filtro que descarta desplazamientos menores a 1cm por frame (ruido) y mayores a 1.2m por frame (interrupciones/reidentificación).
                 * **Posesión con inercia:** Se asigna la posesión al equipo del jugador más cercano al balón (radio < 8.0m). Cuando el balón viaja por el aire o en un pase largo, el sistema mantiene la inercia del último poseedor durante un margen prudencial para reflejar la intención táctica real.
             """)
 
