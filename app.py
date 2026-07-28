@@ -215,31 +215,45 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
 
     # 2. SUAVIZADO Y CÁLCULO DE DISTANCIAS
     def process_player_movement(group):
-        group = group.sort_values('frame')
+        group = group.sort_values('frame').copy()
         
         # Diferencia de fotogramas entre detecciones
         frame_diff = group['frame'].diff()
         
-        # Suavizado de ventana móvil centrada (5 frames ~0.2s)
+        # Suavizado ligero (reduce jitter sin eliminar movimiento real)
         group['x_smooth'] = group['x'].rolling(window=5, min_periods=1, center=True).mean()
         group['y_smooth'] = group['y'].rolling(window=5, min_periods=1, center=True).mean()
         
         # Distancia entre fotogramas consecutivos
         dx = group['x_smooth'].diff()
         dy = group['y_smooth'].diff()
-        step_m = np.sqrt(dx**2 + dy**2)
+        step_px = np.sqrt(dx**2 + dy**2)
         
-        # Tiempo transcurrido real entre registros (en segundos)
-        dt = frame_diff / fps
-        speed_m_s = step_m / dt
+        # Eliminar NaN inicial
+        step_px = step_px.fillna(0.0)
         
-        # CONDICIONES DE VALIDEZ:
-        # - Los fotogramas deben ser estrictamente consecutivos (frame_diff == 1)
-        # - Velocidad entre 0.5 m/s (~1.8 km/h, marcha) y 9.0 m/s (~32.4 km/h, esprint)
+        # SOLO sumar si los frames son consecutivos
         is_consecutive = (frame_diff == 1)
-        valid_speed = (speed_m_s >= 0.5) & (speed_m_s <= 9.0)
         
-        group['distancia_m'] = np.where(is_consecutive & valid_speed, step_m, 0.0)
+        # Eliminar saltos de tracking (reaparición/cambio de ID)
+        UMBRAL_SALTO_TRACKING = 30.0  # píxeles por frame
+        valid_jump = (step_px <= UMBRAL_SALTO_TRACKING)
+        
+        # Eliminar ruido estático del detector
+        UMBRAL_RUIDO = 0.8  # píxeles
+        valid_noise = (step_px >= UMBRAL_RUIDO)
+        
+        # Conversión píxel -> metro (misma calibración que tu código bueno)
+        K_PIXELS_TO_METERS = 0.025
+        step_m = step_px * K_PIXELS_TO_METERS
+        
+        # Distancia válida
+        group['distancia_m'] = np.where(
+            is_consecutive & valid_jump & valid_noise,
+            step_m,
+            0.0
+        )
+        
         group['distancia_m'] = group['distancia_m'].fillna(0.0)
         return group
 
