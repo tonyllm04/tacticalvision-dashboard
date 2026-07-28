@@ -200,45 +200,55 @@ def generate_tactical_sequence(frames=120):
     return pd.DataFrame(data)
 
 
-def compute_distances_and_metrics(df, fps=25):
+def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
     """
-    Calcula distancias aplicando suavizado de trayectoria (EMA) y filtro 
-    cinemático de velocidad realista para eliminar el ruido de jittering.
+    Calcula distancias y métricas tácticas eliminando el jitter de posicionamiento,
+    los saltos por oclusión de IDs y la fragmentación de tracking.
     """
     df = df.copy()
 
-    # 1. SUAVIZADO Y CÁLCULO DE DISTANCIAS
+    # 1. FILTRAR IDS EFÍMEROS / FANTASMA
+    player_counts = df[df['class'] == 'player']['id'].value_counts()
+    valid_ids = player_counts[player_counts >= min_id_duration_frames].index
+    
+    player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
+
+    # 2. SUAVIZADO Y CÁLCULO DE DISTANCIAS
     def process_player_movement(group):
         group = group.sort_values('frame')
         
-        # Suavizado exponencial de coordenadas X e Y para eliminar la vibración (jitter)
-        group['x_smooth'] = group['x'].ewm(alpha=0.20, adjust=False).mean()
-        group['y_smooth'] = group['y'].ewm(alpha=0.20, adjust=False).mean()
+        # Diferencia de fotogramas entre detecciones
+        frame_diff = group['frame'].diff()
         
-        # Diferencial sobre las coordenadas SUAVIZADAS
+        # Suavizado de ventana móvil centrada (5 frames ~0.2s)
+        group['x_smooth'] = group['x'].rolling(window=5, min_periods=1, center=True).mean()
+        group['y_smooth'] = group['y'].rolling(window=5, min_periods=1, center=True).mean()
+        
+        # Distancia entre fotogramas consecutivos
         dx = group['x_smooth'].diff()
         dy = group['y_smooth'].diff()
         step_m = np.sqrt(dx**2 + dy**2)
         
-        # Conversión a velocidad instantánea en metros/segundo
-        speed_m_s = step_m * fps
+        # Tiempo transcurrido real entre registros (en segundos)
+        dt = frame_diff / fps
+        speed_m_s = step_m / dt
         
-        # FILTROS CINEMÁTICOS REALISTAS:
-        # - Menos de 0.35 m/s (~1.2 km/h): Ruido estático o jugador parado
-        # - Más de 9.5 m/s (~34 km/h): Error/salto de seguimiento
-        valid_movement = (speed_m_s >= 0.35) & (speed_m_s <= 9.5)
+        # CONDICIONES DE VALIDEZ:
+        # - Los fotogramas deben ser estrictamente consecutivos (frame_diff == 1)
+        # - Velocidad entre 0.5 m/s (~1.8 km/h, marcha) y 9.0 m/s (~32.4 km/h, esprint)
+        is_consecutive = (frame_diff == 1)
+        valid_speed = (speed_m_s >= 0.5) & (speed_m_s <= 9.0)
         
-        group['distancia_m'] = np.where(valid_movement, step_m, 0.0)
-        group['distancia_m'] = group['distancia_m'].fillna(0)
+        group['distancia_m'] = np.where(is_consecutive & valid_speed, step_m, 0.0)
+        group['distancia_m'] = group['distancia_m'].fillna(0.0)
         return group
 
-    # Aplicar el filtrado solo a los jugadores
-    player_mask = df['class'] == 'player'
+    # Procesar movimiento de jugadores
     df_players = df[player_mask].groupby('id', group_keys=False).apply(process_player_movement)
     
-    # Asignar los valores filtrados de vuelta al DataFrame original
+    # Asignar resultados
+    df['distancia_m'] = 0.0
     df.loc[player_mask, 'distancia_m'] = df_players['distancia_m']
-    df['distancia_m'] = df['distancia_m'].fillna(0)
 
     # Totales por equipo y por jugador
     team_distances = df[df['class'] == 'player'].groupby('team')['distancia_m'].sum().to_dict()
@@ -246,7 +256,7 @@ def compute_distances_and_metrics(df, fps=25):
     player_distances = df[df['class'] == 'player'].groupby(['id', 'team'])['distancia_m'].sum().reset_index()
     player_distances.rename(columns={'distancia_m': 'dist_meters'}, inplace=True)
 
-    # 2. CENTROIDES E INTER-DISTANCIA POR FRAME
+    # 3. CENTROIDES E INTER-DISTANCIA POR FRAME
     player_data = df[df['class'] == 'player']
     centroids = player_data.groupby(['frame', 'team'])[['x', 'y']].mean().reset_index()
     
@@ -259,7 +269,7 @@ def compute_distances_and_metrics(df, fps=25):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
     
-    # 3. POSESIÓN DE BALÓN CON INERCIA
+    # 4. POSESIÓN DE BALÓN CON INERCIA
     frames_list = df['frame'].unique()
     possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
     
