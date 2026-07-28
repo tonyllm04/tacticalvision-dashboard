@@ -200,22 +200,44 @@ def generate_tactical_sequence(frames=120):
     return pd.DataFrame(data)
 
 
-def compute_distances_and_metrics(df):
+def compute_distances_and_metrics(df, fps=25):
     """
-    Calcula distancias recorridas (filtrando saltos y ruido), centroides, 
-    distancia inter-centroides y posesión por inercia temporal.
+    Calcula distancias aplicando suavizado de trayectoria (EMA) y filtro 
+    cinemático de velocidad realista para eliminar el ruido de jittering.
     """
-    # 1. Distancias recorridas corregidas según las columnas reales
-    df['dx'] = df.groupby('id')['x'].diff()
-    df['dy'] = df.groupby('id')['y'].diff()
-    df['distancia_m'] = np.sqrt(df['dx']**2 + df['dy']**2)
+    df = df.copy()
 
-    # Umbrales ajustados para METROS por frame (asumiendo 25 FPS):
-    umbral_salto_metros = 1.2      # Más de 1.2m en 1/25s es un error de tracking
-    umbral_ruido_estatico_m = 0.01 # Menos de 1cm por frame es ruido estático
+    # 1. SUAVIZADO Y CÁLCULO DE DISTANCIAS
+    def process_player_movement(group):
+        group = group.sort_values('frame')
+        
+        # Suavizado exponencial de coordenadas X e Y para eliminar la vibración (jitter)
+        group['x_smooth'] = group['x'].ewm(alpha=0.20, adjust=False).mean()
+        group['y_smooth'] = group['y'].ewm(alpha=0.20, adjust=False).mean()
+        
+        # Diferencial sobre las coordenadas SUAVIZADAS
+        dx = group['x_smooth'].diff()
+        dy = group['y_smooth'].diff()
+        step_m = np.sqrt(dx**2 + dy**2)
+        
+        # Conversión a velocidad instantánea en metros/segundo
+        speed_m_s = step_m * fps
+        
+        # FILTROS CINEMÁTICOS REALISTAS:
+        # - Menos de 0.35 m/s (~1.2 km/h): Ruido estático o jugador parado
+        # - Más de 9.5 m/s (~34 km/h): Error/salto de seguimiento
+        valid_movement = (speed_m_s >= 0.35) & (speed_m_s <= 9.5)
+        
+        group['distancia_m'] = np.where(valid_movement, step_m, 0.0)
+        group['distancia_m'] = group['distancia_m'].fillna(0)
+        return group
 
-    df.loc[df['distancia_m'] > umbral_salto_metros, 'distancia_m'] = 0
-    df.loc[df['distancia_m'] < umbral_ruido_estatico_m, 'distancia_m'] = 0
+    # Aplicar el filtrado solo a los jugadores
+    player_mask = df['class'] == 'player'
+    df_players = df[player_mask].groupby('id', group_keys=False).apply(process_player_movement)
+    
+    # Asignar los valores filtrados de vuelta al DataFrame original
+    df.loc[player_mask, 'distancia_m'] = df_players['distancia_m']
     df['distancia_m'] = df['distancia_m'].fillna(0)
 
     # Totales por equipo y por jugador
@@ -224,7 +246,7 @@ def compute_distances_and_metrics(df):
     player_distances = df[df['class'] == 'player'].groupby(['id', 'team'])['distancia_m'].sum().reset_index()
     player_distances.rename(columns={'distancia_m': 'dist_meters'}, inplace=True)
 
-    # 2. Centroides e Inter-distancia por frame
+    # 2. CENTROIDES E INTER-DISTANCIA POR FRAME
     player_data = df[df['class'] == 'player']
     centroids = player_data.groupby(['frame', 'team'])[['x', 'y']].mean().reset_index()
     
@@ -237,13 +259,13 @@ def compute_distances_and_metrics(df):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
     
-    # 3. Posesión de balón con Inercia
+    # 3. POSESIÓN DE BALÓN CON INERCIA
     frames_list = df['frame'].unique()
     possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
     
     last_possessor = 'disputed'
     inertia_counter = 0
-    MAX_INERTIA = 10  # Mantener posesión durante 10 frames tras perder contacto directo
+    MAX_INERTIA = 10 
     
     for f in frames_list:
         frame_data = df[df['frame'] == f]
@@ -257,7 +279,7 @@ def compute_distances_and_metrics(df):
             p_copy['dist'] = np.sqrt((p_copy['x'] - bx)**2 + (p_copy['y'] - by)**2)
             closest = p_copy.loc[p_copy['dist'].idxmin()]
             
-            if closest['dist'] < 8.0: # Umbral de control en metros
+            if closest['dist'] < 8.0:
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
