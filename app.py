@@ -200,7 +200,7 @@ def generate_tactical_sequence(frames=3600):
     return pd.DataFrame(data)
 
 
-def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=3600):
+def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
     """
     Calcula distancias y métricas tácticas eliminando el jitter de posicionamiento,
     los saltos por oclusión de IDs y la fragmentación de tracking.
