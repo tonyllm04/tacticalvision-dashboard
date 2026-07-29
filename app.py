@@ -133,7 +133,7 @@ def draw_football_pitch(ax, slate_mode=True):
 # ------------------------------------------------------------------------------
 # 3. MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
 # ------------------------------------------------------------------------------
-def generate_tactical_sequence(frames=120):
+def generate_tactical_sequence(frames=3600):
     """
     Genera secuencia de seguimiento en 2D métrico simulando una fase ofensiva.
     """
@@ -200,7 +200,7 @@ def generate_tactical_sequence(frames=120):
     return pd.DataFrame(data)
 
 
-def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
+def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=3600):
     """
     Calcula distancias y métricas tácticas eliminando el jitter de posicionamiento,
     los saltos por oclusión de IDs y la fragmentación de tracking.
