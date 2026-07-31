@@ -448,21 +448,22 @@ if not st.session_state.processed:
                 # 4) Métricas
                 metrics = compute_distances_and_metrics(raw_df)
 
-                # Guardar en sesión
+                # Guardar en sesión UNA SOLA VEZ
                 st.session_state.df = raw_df
                 st.session_state.metrics = metrics
+                st.session_state.processed = True
 
                 # Limpiar temporales
                 for f in [video_path, csv_raw]:
                     if os.path.exists(f):
                         os.remove(f)
-                
-                st.session_state.df = raw_df
-                st.session_state.metrics = metrics
+
                 status.update(label="Análisis completado con éxito", state="complete")
-                
-            st.session_state.processed = True
-            st.rerun()
+
+                st.success("Pipeline finalizado correctamente")
+
+                # Volver a ejecutar la app para entrar en el bloque else
+                st.rerun()
 
 else:
     # Cargar variables guardadas en sesión
