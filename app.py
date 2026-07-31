@@ -7,6 +7,11 @@ import matplotlib.patches as patches
 import seaborn as sns
 from scipy.spatial import ConvexHull
 import time
+import tempfile
+import os
+
+from extraccion_datos import generar_dataset_deteccion
+from visualizar_seguimiento_equipos import procesar_y_limpiar_dataset
 
 # ------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
@@ -93,40 +98,38 @@ class HomographyTransformer:
 
 
 def draw_football_pitch(ax, slate_mode=True):
-    """
-    Dibuja un terreno de juego profesional a escala 105x68 metros sobre Matplotlib.
-    """
-    bg_color = '#1e293b' if slate_mode else '#2d5a27'
-    line_color = '#475569' if slate_mode else '#ffffff'
-    
-    # Perímetro del campo
-    rect = patches.Rectangle((0, 0), 105, 68, linewidth=2, edgecolor=line_color, facecolor=bg_color, zorder=1)
-    ax.add_patch(rect)
-    
-    # Línea divisoria y círculo central
-    ax.plot([52.5, 52.5], [0, 68], color=line_color, linewidth=2, zorder=2)
-    center_circle = patches.Circle((52.5, 34), 9.15, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2)
-    ax.add_patch(center_circle)
-    ax.scatter(52.5, 34, color=line_color, s=20, zorder=3)
-    
-    # Áreas izquierda (Local)
-    ax.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2))
-    ax.add_patch(patches.Rectangle((0, 24.84), 5.5, 18.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2))
-    
-    # Áreas derecha (Rival)
-    ax.add_patch(patches.Rectangle((88.5, 13.84), 16.5, 40.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2))
-    ax.add_patch(patches.Rectangle((99.5, 24.84), 5.5, 18.32, linewidth=2, edgecolor=line_color, facecolor='none', zorder=2))
-    
-    # Puntos de penalti
-    ax.scatter(11, 34, color=line_color, s=20, zorder=3)
-    ax.scatter(94, 34, color=line_color, s=20, zorder=3)
-    
-    # Arcos del área
-    ax.add_patch(patches.Arc((11, 34), 18.3, 18.3, theta1=-53, theta2=53, linewidth=2, color=line_color, zorder=2))
-    ax.add_patch(patches.Arc((94, 34), 18.3, 18.3, theta1=127, theta2=233, linewidth=2, color=line_color, zorder=2))
-    
-    ax.set_xlim(-3, 108)
-    ax.set_ylim(-3, 71)
+    line_color = "white"
+
+    # Bandas
+    ax.plot([-100, 2100], [200, 200], color=line_color, linewidth=1.5, alpha=0.6)
+    ax.plot([-150, 2150], [1030, 1030], color=line_color, linewidth=1.5, alpha=0.6)
+
+    # Líneas de meta
+    ax.plot([-100, -150], [200, 1030], color=line_color, linewidth=1.5, alpha=0.6)
+    ax.plot([2100, 2150], [200, 1030], color=line_color, linewidth=1.5, alpha=0.6)
+
+    # Medio campo
+    ax.plot([1000, 1000], [200, 1030], color=line_color, linewidth=1.5, alpha=0.6)
+
+    # Círculo central
+    theta = np.linspace(0, 2*np.pi, 100)
+    cx = 1000 + 160 * np.cos(theta)
+    cy = 580 + 190 * np.sin(theta)
+    ax.plot(cx, cy, color=line_color, linewidth=1.5, alpha=0.6)
+
+    # Área izquierda
+    ax.plot([-100, 250], [320, 320], color=line_color, linewidth=1.5, alpha=0.6)
+    ax.plot([250, 230], [320, 880], color=line_color, linewidth=1.5, alpha=0.6)
+    ax.plot([230, -140], [880, 880], color=line_color, linewidth=1.5, alpha=0.6)
+
+    # Área derecha
+    ax.plot([2100, 1750], [320, 320], color=line_color, linewidth=1.5, alpha=0.6)
+    ax.plot([1750, 1770], [320, 880], color=line_color, linewidth=1.5, alpha=0.6)
+    ax.plot([1770, 2140], [880, 880], color=line_color, linewidth=1.5, alpha=0.6)
+
+    ax.set_xlim(-100, 2100)
+    ax.set_ylim(1100, 100)
+    ax.invert_yaxis()
     ax.axis('off')
 
 
@@ -202,90 +205,99 @@ def generate_tactical_sequence(frames=3600):
 
 def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
     """
-    Calcula distancias y métricas tácticas eliminando el jitter de posicionamiento,
-    los saltos por oclusión de IDs y la fragmentación de tracking.
+    Cálculo de distancias.
+    Coordenadas en píxeles de cámara.
     """
+
     df = df.copy()
 
-    # 1. FILTRAR IDS EFÍMEROS / FANTASMA
-    player_counts = df[df['class'] == 'player']['id'].value_counts()
+    # Filtrar jugadores válidos
+    player_mask = df['class'] == 'player'
+    player_counts = df[player_mask]['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
-    
-    player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
+    df = df[df['id'].isin(valid_ids) | (df['class'] != 'player')]
 
-    # 2. SUAVIZADO Y CÁLCULO DE DISTANCIAS
-    def process_player_movement(group):
-        group = group.sort_values('frame').copy()
-        
-        # Suavizado ligero
-        group['x_smooth'] = group['x'].rolling(window=5, min_periods=1, center=True).mean()
-        group['y_smooth'] = group['y'].rolling(window=5, min_periods=1, center=True).mean()
-        
-        dx = group['x_smooth'].diff()
-        dy = group['y_smooth'].diff()
-        step_m = np.sqrt(dx**2 + dy**2).fillna(0.0)
+    # Solo jugadores
+    players = df[df['class'] == 'player'].copy()
+    players = players.sort_values(['id', 'frame'])
 
-        UMBRAL_SALTO_TRACKING = 1.2   # metros por frame
-        UMBRAL_RUIDO = 0.01           # 1 cm
+    # Distancia entre frames consecutivos del mismo ID
+    players['dx'] = players.groupby('id')['x'].diff()
+    players['dy'] = players.groupby('id')['y'].diff()
 
-        valid_jump = step_m <= UMBRAL_SALTO_TRACKING
-        valid_noise = step_m >= UMBRAL_RUIDO
+    players['distancia_px'] = np.sqrt(players['dx']**2 + players['dy']**2)
 
-        group['distancia_m'] = np.where(
-            valid_jump & valid_noise,
-            step_m,
-            0.0
-        )
-        
-        return group
+    # Mismos filtros que tus scripts originales
+    UMBRAL_SALTO = 30.0
+    UMBRAL_RUIDO = 0.8
 
-    # Procesar movimiento de jugadores
-    df_players = df[player_mask].groupby('id', group_keys=False).apply(process_player_movement)
-    
-    # Asignar resultados
+    players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
+    players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
+
+    players['distancia_px'] = players['distancia_px'].fillna(0.0)
+
+    # Conversión píxel -> metro
+    K_PIXELS_A_METROS = 0.025
+    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS
+
+    # Volcar al dataframe principal
     df['distancia_m'] = 0.0
-    df.loc[player_mask, 'distancia_m'] = df_players['distancia_m']
+    df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
-    # Totales por equipo y por jugador
-    team_distances = df[df['class'] == 'player'].groupby('team')['distancia_m'].sum().to_dict()
-    
-    player_distances = df[df['class'] == 'player'].groupby(['id', 'team'])['distancia_m'].sum().reset_index()
-    player_distances.rename(columns={'distancia_m': 'dist_meters'}, inplace=True)
+    # Distancias por equipo
+    team_distances = players.groupby('team')['distancia_m'].sum().to_dict()
 
-    # 3. CENTROIDES E INTER-DISTANCIA POR FRAME
+    # Distancias por jugador
+    player_distances = (
+        players.groupby(['id', 'team'])['distancia_m']
+        .sum()
+        .reset_index()
+        .rename(columns={'distancia_m': 'dist_meters'})
+    )
+
+    # Centroides
     player_data = df[df['class'] == 'player']
-    centroids = player_data.groupby(['frame', 'team'])[['x', 'y']].mean().reset_index()
-    
+    centroids = (
+        player_data.groupby(['frame', 'team'])[['x', 'y']]
+        .mean()
+        .reset_index()
+    )
+
     home_cent = centroids[centroids['team'] == 'home'].rename(columns={'x': 'x_home', 'y': 'y_home'})
     away_cent = centroids[centroids['team'] == 'away'].rename(columns={'x': 'x_away', 'y': 'y_away'})
-    
+
     inter_df = pd.merge(home_cent, away_cent, on='frame')
+
     inter_df['inter_distance'] = np.sqrt(
-        (inter_df['x_home'] - inter_df['x_away'])**2 + 
+        (inter_df['x_home'] - inter_df['x_away'])**2 +
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
-    
-    # 4. POSESIÓN DE BALÓN CON INERCIA
+
+    # Posesión simple con inercia
     frames_list = df['frame'].unique()
     possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
-    
+
     last_possessor = 'disputed'
     inertia_counter = 0
-    MAX_INERTIA = 10 
-    
+    MAX_INERTIA = 10
+
     for f in frames_list:
         frame_data = df[df['frame'] == f]
+
         ball = frame_data[frame_data['class'] == 'ball']
-        players = frame_data[frame_data['class'] == 'player']
-        
+        players_f = frame_data[frame_data['class'] == 'player']
+
         current_possessor = 'disputed'
-        if not ball.empty and not players.empty:
+
+        if not ball.empty and not players_f.empty:
             bx, by = ball.iloc[0]['x'], ball.iloc[0]['y']
-            p_copy = players.copy()
+
+            p_copy = players_f.copy()
             p_copy['dist'] = np.sqrt((p_copy['x'] - bx)**2 + (p_copy['y'] - by)**2)
+
             closest = p_copy.loc[p_copy['dist'].idxmin()]
-            
-            if closest['dist'] < 8.0:
+
+            if closest['dist'] < 60.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -295,13 +307,14 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
                     inertia_counter -= 1
                 else:
                     current_possessor = 'disputed'
-                    
+
         possession_counts[current_possessor] += 1
-        
+
     total_frames = len(frames_list)
+
     poss_home = round((possession_counts['home'] / total_frames) * 100) if total_frames > 0 else 50
     poss_away = round((possession_counts['away'] / total_frames) * 100) if total_frames > 0 else 50
-    
+
     return {
         'player_distances': player_distances,
         'team_distances': team_distances,
@@ -369,8 +382,80 @@ if not st.session_state.processed:
                 time.sleep(0.5)
                 st.write("5. Computando centroides, distancias y posesión con inercia...")
                 
-                raw_df = generate_tactical_sequence(3600)
+                # Guardar vídeo subido temporalmente
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_video:
+                    tmp_video.write(uploaded_file.read())
+                    video_path = tmp_video.name
+
+                # Archivos temporales del pipeline
+                csv_raw = 'temp_raw.csv'
+                csv_filtrado = 'temp_filtrado.csv'
+                video_ia = 'temp_ia.mp4'
+
+                # 1) Extracción YOLO + ByteTrack
+                st.write('Extrayendo detecciones del vídeo...')
+                generar_dataset_deteccion(
+                    video_path,
+                    csv_raw,
+                    max_frames=3600
+                )
+
+                # 2) Limpieza y clasificación cromática
+                st.write('Limpiando IDs y clasificando equipos...')
+                procesar_y_limpiar_dataset(
+                    video_path,
+                    csv_raw,
+                    video_ia,
+                    csv_filtrado
+                )
+
+                # 3) Cargar CSV filtrado REAL
+                raw_df = pd.read_csv(csv_filtrado)
+
+                # Adaptar nombres a la estructura de la app
+                raw_df = raw_df.rename(columns={
+                    'id_jugador': 'id',
+                    'rol_equipo': 'team',
+                    'pos_x': 'x',
+                    'pos_y': 'y'
+                })
+
+                raw_df['class'] = 'player'
+
+                # Añadir balón como filas independientes
+                ball_rows = raw_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
+
+                ball_rows = ball_rows[
+                    (ball_rows['balon_x'] != -1) &
+                    (ball_rows['balon_y'] != -1)
+                ]
+
+                ball_rows = ball_rows.rename(columns={
+                    'balon_x': 'x',
+                    'balon_y': 'y'
+                })
+
+                ball_rows['id'] = 9999
+                ball_rows['team'] = 'ball'
+                ball_rows['class'] = 'ball'
+
+                # Unir jugadores y balón
+                raw_df = pd.concat([
+                    raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
+                    ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
+                ], ignore_index=True)
+
+                # 4) Métricas
                 metrics = compute_distances_and_metrics(raw_df)
+
+                # Guardar en sesión
+                st.session_state.df = raw_df
+                st.session_state.metrics = metrics
+
+                # Limpiar temporales
+                for f in [video_path, csv_raw]:
+                    if os.path.exists(f):
+                        os.remove(f)
                 
                 st.session_state.df = raw_df
                 st.session_state.metrics = metrics
