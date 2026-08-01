@@ -454,6 +454,10 @@ if not st.session_state.processed:
 
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
+                    st.write("DEBUG: métricas calculadas")
+                    st.write(metrics)
+
+                    st.stop()
                     if metrics is None:
                         st.error("No se generaron métricas. Revisa el procesamiento del vídeo.")
                         st.stop()
