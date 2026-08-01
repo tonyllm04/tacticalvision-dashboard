@@ -462,8 +462,34 @@ if not st.session_state.processed:
 
                 st.success("Pipeline finalizado correctamente")
 
-                # Volver a ejecutar la app para entrar en el bloque else
-                st.rerun()
+                # =========================
+                # MOSTRAR RESULTADOS INMEDIATAMENTE
+                # =========================
+                st.divider()
+                st.header("Informe Telemetrico Activo")
+
+                dist_home = metrics['team_distances'].get('home', 0.0)
+                dist_away = metrics['team_distances'].get('away', 0.0)
+                avg_inter_dist = metrics['inter_df']['inter_distance'].mean()
+
+                m1, m2, m3, m4, m5 = st.columns(5)
+
+                with m1:
+                    st.metric(f"Posesión {home_team_input}", f"{metrics['poss_home']}%")
+
+                with m2:
+                    st.metric(f"Posesión {away_team_input}", f"{metrics['poss_away']}%")
+
+                with m3:
+                    st.metric(f"Dist. Total {home_team_input}", f"{dist_home:.1f} m")
+
+                with m4:
+                    st.metric(f"Dist. Total {away_team_input}", f"{dist_away:.1f} m")
+
+                with m5:
+                    st.metric("Dist. Inter-Centroides", f"{avg_inter_dist:.1f} m")
+
+                st.success("Resultados cargados correctamente")
 
 else:
     # Cargar variables guardadas en sesión
