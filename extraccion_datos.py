@@ -52,6 +52,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
 
     frame_count = 0
     FRAME_STRIDE = 3
+    processed_frames = 0
 
     ultimo_balon_x, ultimo_balon_y = -1, -1
     frames_balon_desaparecido = 0
