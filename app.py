@@ -402,7 +402,7 @@ if not st.session_state.processed:
                     generar_dataset_deteccion(
                         video_path,
                         csv_raw,
-                        max_frames=1200
+                        max_frames=900
                     )
 
                     # 2) Limpieza y clasificación cromática
@@ -420,6 +420,10 @@ if not st.session_state.processed:
                     raw_df = pd.read_csv(csv_filtrado)
 
                     st.write(f"DEBUG filas CSV filtrado: {len(raw_df)}")
+
+                    if raw_df.empty:
+                        st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
+                        st.stop()
 
                     gc.collect()
 
@@ -459,6 +463,7 @@ if not st.session_state.processed:
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
                     st.write("DEBUG: métricas calculadas")
+                    st.write(metrics['team_distances'])
                     st.write(metrics)
 
                     st.stop()

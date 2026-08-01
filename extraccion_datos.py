@@ -71,6 +71,18 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             ret, frame = cap.read()
             if not ret: break
 
+            frame_count += 1
+
+            # Procesar solo 1 de cada 3 frames
+            if frame_count % FRAME_STRIDE != 0:
+                continue
+
+            processed_frames += 1
+
+            # Limitar número real de frames procesados
+            if processed_frames >= max_frames:
+                break
+
             # Enviamos el frame modificado (con los puntos de penalti "borrados") a YOLO
             results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=640, conf=0.25, verbose=False)
 
@@ -128,10 +140,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                             cv2.imwrite(nombre_archivo_camiseta, recorte_camiseta)
 
                         writer.writerow([frame_count, idx, coords_str, nombre_archivo_camiseta, bx, by])
-
-            frame_count += 1
-            if frame_count % FRAME_STRIDE != 0:
-                continue
                 
     except KeyboardInterrupt:
         print("\nInterrupción manual.")
