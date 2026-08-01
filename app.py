@@ -9,6 +9,7 @@ from scipy.spatial import ConvexHull
 import time
 import tempfile
 import os
+import gc
 
 from extraccion_datos import generar_dataset_deteccion
 from visualizar_seguimiento_equipos import procesar_y_limpiar_dataset
@@ -240,7 +241,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     players['distancia_px'] = players['distancia_px'].fillna(0.0)
 
     K_PIXELS_A_METROS = 0.025
-    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS
+    FRAME_STRIDE = 3
+    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
 
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
@@ -400,7 +402,7 @@ if not st.session_state.processed:
                     generar_dataset_deteccion(
                         video_path,
                         csv_raw,
-                        max_frames=3600
+                        max_frames=1200
                     )
 
                     # 2) Limpieza y clasificación cromática
@@ -418,6 +420,8 @@ if not st.session_state.processed:
                     raw_df = pd.read_csv(csv_filtrado)
 
                     st.write(f"DEBUG filas CSV filtrado: {len(raw_df)}")
+
+                    gc.collect()
 
                     # Adaptar nombres a la estructura de la app
                     raw_df = raw_df.rename(columns={
@@ -468,9 +472,13 @@ if not st.session_state.processed:
                     st.session_state.processed = True
 
                     # Limpiar temporales
-                    for f in [video_path, csv_raw]:
+                    for f in [video_path, csv_raw, csv_filtrado, video_ia]:
                         if os.path.exists(f):
                             os.remove(f)
+
+                    # Liberar memoria explícitamente
+                    del ball_rows
+                    gc.collect()
 
                     status.update(label="Análisis completado con éxito", state="complete")
 

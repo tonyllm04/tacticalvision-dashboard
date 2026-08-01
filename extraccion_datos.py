@@ -51,6 +51,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     writer.writerow(['frame', 'id', 'coords_caja', 'camiseta_path', 'balon_x', 'balon_y'])
 
     frame_count = 0
+    FRAME_STRIDE = 3
 
     ultimo_balon_x, ultimo_balon_y = -1, -1
     frames_balon_desaparecido = 0
@@ -71,7 +72,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             if not ret: break
 
             # Enviamos el frame modificado (con los puntos de penalti "borrados") a YOLO
-            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=1280, conf=0.25, verbose=False)
+            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=640, conf=0.25, verbose=False)
 
             balon_detectado_este_frame = False
             bx, by = -1, -1
@@ -129,8 +130,8 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         writer.writerow([frame_count, idx, coords_str, nombre_archivo_camiseta, bx, by])
 
             frame_count += 1
-            if frame_count % 30 == 0:
-                print(f"Frames procesados con oclusión: {frame_count} / {max_frames}", end="\r")
+            if frame_count % FRAME_STRIDE != 0:
+                continue
                 
     except KeyboardInterrupt:
         print("\nInterrupción manual.")
