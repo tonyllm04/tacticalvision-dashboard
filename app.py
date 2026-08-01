@@ -203,7 +203,7 @@ def generate_tactical_sequence(frames=3600):
     return pd.DataFrame(data)
 
 
-def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
+def compute_distances_and_metrics(df, min_id_duration_frames=3):
     """
     Cálculo de distancias.
     Coordenadas en píxeles de cámara.
@@ -211,14 +211,18 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
 
     df = df.copy()
 
-    # Filtrar jugadores válidos
-    player_mask = df['class'] == 'player'
-    player_counts = df[player_mask]['id'].value_counts()
+    # Filtrado MUY permisivo para ByteTrack
+    player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
-    df = df[df['id'].isin(valid_ids) | (df['class'] != 'player')]
 
-    # Solo jugadores
-    players = df[df['class'] == 'player'].copy()
+    player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
+
+    # Si el filtrado deja muy pocos jugadores, usar TODOS
+    if player_mask.sum() < 100:
+        player_mask = (df['class'] == 'player')
+
+    # Solo jugadores válidos
+    players = df[player_mask].copy()
     players = players.sort_values(['id', 'frame'])
 
     # Distancia entre frames consecutivos del mismo ID
@@ -227,7 +231,6 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
 
     players['distancia_px'] = np.sqrt(players['dx']**2 + players['dy']**2)
 
-    # Mismos filtros que tus scripts originales
     UMBRAL_SALTO = 30.0
     UMBRAL_RUIDO = 0.8
 
@@ -236,18 +239,14 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
 
     players['distancia_px'] = players['distancia_px'].fillna(0.0)
 
-    # Conversión píxel -> metro
     K_PIXELS_A_METROS = 0.025
     players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS
 
-    # Volcar al dataframe principal
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
-    # Distancias por equipo
     team_distances = players.groupby('team')['distancia_m'].sum().to_dict()
 
-    # Distancias por jugador
     player_distances = (
         players.groupby(['id', 'team'])['distancia_m']
         .sum()
@@ -314,6 +313,9 @@ def compute_distances_and_metrics(df, fps=25, min_id_duration_frames=15):
 
     poss_home = round((possession_counts['home'] / total_frames) * 100) if total_frames > 0 else 50
     poss_away = round((possession_counts['away'] / total_frames) * 100) if total_frames > 0 else 50
+
+    st.write("DEBUG distancias equipo:", team_distances)
+    st.write("DEBUG jugadores válidos:", player_mask.sum())
 
     return {
         'player_distances': player_distances,
