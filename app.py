@@ -489,6 +489,8 @@ if not st.session_state.processed:
 
                     st.success("Pipeline finalizado correctamente")
 
+                    st.rerun()
+
                 except Exception as e:
                     status.update(label="Error en el pipeline", state="error")
                     st.exception(e)
