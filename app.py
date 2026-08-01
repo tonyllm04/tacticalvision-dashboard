@@ -372,95 +372,108 @@ if not st.session_state.processed:
             st.session_state.away_color = "#f43f5e"  # Rosa Coral
             
             with st.status("Ejecutando Pipeline Táctico...", expanded=True) as status:
-                st.write("1. Cargando red neuronal YOLOv8...")
-                time.sleep(0.5)
-                st.write("2. Inicializando tracker multiobjeto ByteTrack...")
-                time.sleep(0.5)
-                st.write("3. Aplicando matriz de Homografía a plano métrico 2D (105x68m)...")
-                time.sleep(0.5)
-                st.write("4. Clasificación cromática por K-Means en HSV y filtrado de sombras...")
-                time.sleep(0.5)
-                st.write("5. Computando centroides, distancias y posesión con inercia...")
-                
-                # Guardar vídeo subido temporalmente
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_video:
-                    tmp_video.write(uploaded_file.read())
-                    video_path = tmp_video.name
+                try:
+                    st.write("1. Cargando red neuronal YOLOv8...")
+                    time.sleep(0.5)
+                    st.write("2. Inicializando tracker multiobjeto ByteTrack...")
+                    time.sleep(0.5)
+                    st.write("3. Aplicando matriz de Homografía a plano métrico 2D (105x68m)...")
+                    time.sleep(0.5)
+                    st.write("4. Clasificación cromática por K-Means en HSV y filtrado de sombras...")
+                    time.sleep(0.5)
+                    st.write("5. Computando centroides, distancias y posesión con inercia...")
+                    
+                    # Guardar vídeo subido temporalmente
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_video:
+                        tmp_video.write(uploaded_file.read())
+                        video_path = tmp_video.name
 
-                # Archivos temporales del pipeline
-                csv_raw = 'temp_raw.csv'
-                csv_filtrado = 'temp_filtrado.csv'
-                video_ia = 'temp_ia.mp4'
+                    # Archivos temporales del pipeline
+                    csv_raw = 'temp_raw.csv'
+                    csv_filtrado = 'temp_filtrado.csv'
+                    video_ia = 'temp_ia.mp4'
 
-                # 1) Extracción YOLO + ByteTrack
-                st.write('Extrayendo detecciones del vídeo...')
-                generar_dataset_deteccion(
-                    video_path,
-                    csv_raw,
-                    max_frames=3600
-                )
+                    # 1) Extracción YOLO + ByteTrack
+                    st.write('Extrayendo detecciones del vídeo...')
+                    generar_dataset_deteccion(
+                        video_path,
+                        csv_raw,
+                        max_frames=3600
+                    )
 
-                # 2) Limpieza y clasificación cromática
-                st.write('Limpiando IDs y clasificando equipos...')
-                procesar_y_limpiar_dataset(
-                    video_path,
-                    csv_raw,
-                    video_ia,
-                    csv_filtrado
-                )
+                    # 2) Limpieza y clasificación cromática
+                    st.write('Limpiando IDs y clasificando equipos...')
+                    procesar_y_limpiar_dataset(
+                        video_path,
+                        csv_raw,
+                        video_ia,
+                        csv_filtrado
+                    )
 
-                # 3) Cargar CSV filtrado REAL
-                raw_df = pd.read_csv(csv_filtrado)
+                    if not os.path.exists(csv_filtrado):
+                        raise FileNotFoundError(f"No se generó el archivo {csv_filtrado}")
+                    # 3) Cargar CSV filtrado REAL
+                    raw_df = pd.read_csv(csv_filtrado)
 
-                # Adaptar nombres a la estructura de la app
-                raw_df = raw_df.rename(columns={
-                    'id_jugador': 'id',
-                    'rol_equipo': 'team',
-                    'pos_x': 'x',
-                    'pos_y': 'y'
-                })
+                    st.write(f"DEBUG filas CSV filtrado: {len(raw_df)}")
 
-                raw_df['class'] = 'player'
+                    # Adaptar nombres a la estructura de la app
+                    raw_df = raw_df.rename(columns={
+                        'id_jugador': 'id',
+                        'rol_equipo': 'team',
+                        'pos_x': 'x',
+                        'pos_y': 'y'
+                    })
 
-                # Añadir balón como filas independientes
-                ball_rows = raw_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
+                    raw_df['class'] = 'player'
 
-                ball_rows = ball_rows[
-                    (ball_rows['balon_x'] != -1) &
-                    (ball_rows['balon_y'] != -1)
-                ]
+                    # Añadir balón como filas independientes
+                    ball_rows = raw_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
 
-                ball_rows = ball_rows.rename(columns={
-                    'balon_x': 'x',
-                    'balon_y': 'y'
-                })
+                    ball_rows = ball_rows[
+                        (ball_rows['balon_x'] != -1) &
+                        (ball_rows['balon_y'] != -1)
+                    ]
 
-                ball_rows['id'] = 9999
-                ball_rows['team'] = 'ball'
-                ball_rows['class'] = 'ball'
+                    ball_rows = ball_rows.rename(columns={
+                        'balon_x': 'x',
+                        'balon_y': 'y'
+                    })
 
-                # Unir jugadores y balón
-                raw_df = pd.concat([
-                    raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
-                    ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
-                ], ignore_index=True)
+                    ball_rows['id'] = 9999
+                    ball_rows['team'] = 'ball'
+                    ball_rows['class'] = 'ball'
 
-                # 4) Métricas
-                metrics = compute_distances_and_metrics(raw_df)
+                    # Unir jugadores y balón
+                    raw_df = pd.concat([
+                        raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
+                        ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
+                    ], ignore_index=True)
 
-                # Guardar en sesión UNA SOLA VEZ
-                st.session_state.df = raw_df
-                st.session_state.metrics = metrics
-                st.session_state.processed = True
+                    # 4) Métricas
+                    metrics = compute_distances_and_metrics(raw_df)
+                    if metrics is None:
+                        st.error("No se generaron métricas. Revisa el procesamiento del vídeo.")
+                        st.stop()
 
-                # Limpiar temporales
-                for f in [video_path, csv_raw]:
-                    if os.path.exists(f):
-                        os.remove(f)
+                    # Guardar en sesión UNA SOLA VEZ
+                    st.session_state.df = raw_df
+                    st.session_state.metrics = metrics
+                    st.session_state.processed = True
 
-                status.update(label="Análisis completado con éxito", state="complete")
+                    # Limpiar temporales
+                    for f in [video_path, csv_raw]:
+                        if os.path.exists(f):
+                            os.remove(f)
 
-                st.success("Pipeline finalizado correctamente")
+                    status.update(label="Análisis completado con éxito", state="complete")
+
+                    st.success("Pipeline finalizado correctamente")
+
+                except Exception as e:
+                    status.update(label="Error en el pipeline", state="error")
+                    st.exception(e)
+                    st.stop()
 
                 # =========================
                 # MOSTRAR RESULTADOS INMEDIATAMENTE
@@ -470,7 +483,12 @@ if not st.session_state.processed:
 
                 dist_home = metrics['team_distances'].get('home', 0.0)
                 dist_away = metrics['team_distances'].get('away', 0.0)
-                avg_inter_dist = metrics['inter_df']['inter_distance'].mean()
+                inter_df = metrics.get('inter_df', pd.DataFrame())
+
+                if inter_df.empty or 'inter_distance' not in inter_df.columns:
+                    avg_inter_dist = 0.0
+                else:
+                    avg_inter_dist = float(inter_df['inter_distance'].mean())
 
                 m1, m2, m3, m4, m5 = st.columns(5)
 
