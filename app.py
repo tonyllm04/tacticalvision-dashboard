@@ -436,6 +436,15 @@ if not st.session_state.processed:
                         'pos_y': 'y'
                     })
 
+                    # Normalizar nombres de equipo del clasificador cromático
+                    raw_df['team'] = raw_df['team'].replace({
+                        'Equipo_1': 'home',
+                        'Equipo_2': 'away',
+                        'equipo_1': 'home',
+                        'equipo_2': 'away'
+                    })
+
+                    st.write('DEBUG equipos detectados:', raw_df['team'].unique())
                     st.write("DEBUG columnas tras rename:", list(raw_df.columns))
                     st.write(raw_df.head())
 
