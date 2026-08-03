@@ -435,6 +435,9 @@ if not st.session_state.processed:
                         'pos_y': 'y'
                     })
 
+                    st.write("DEBUG columnas tras rename:", list(raw_df.columns))
+                    st.write(raw_df.head())
+
                     raw_df['class'] = 'player'
 
                     # Añadir balón como filas independientes (seguro)
@@ -496,7 +499,14 @@ if not st.session_state.processed:
 
                 except Exception as e:
                     status.update(label="Error en el pipeline", state="error")
-                    st.exception(e)
+
+                    st.error("EXCEPCIÓN REAL DEL PIPELINE")
+                    st.write(type(e))
+                    st.write(str(e))
+
+                    import traceback
+                    st.code(traceback.format_exc())
+
                     st.stop()
 
 else:
