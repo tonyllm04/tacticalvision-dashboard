@@ -367,6 +367,7 @@ if not st.session_state.processed:
         run_button = st.button("Ejecutar Pipeline Táctico", use_container_width=True)
 
     if run_button:
+        st.session_state.pop('pipeline_error', None)
         if uploaded_file is None:
             st.error("Por favor, selecciona un archivo de vídeo (.mp4 o .mov) para iniciar el análisis.")
         else:
@@ -500,14 +501,15 @@ if not st.session_state.processed:
                 except Exception as e:
                     status.update(label="Error en el pipeline", state="error")
 
-                    st.error("EXCEPCIÓN REAL DEL PIPELINE")
-                    st.write(type(e))
-                    st.write(str(e))
-
+                    # Guardar el error en sesión para mostrarlo fuera del status
                     import traceback
-                    st.code(traceback.format_exc())
+                    st.session_state.pipeline_error = traceback.format_exc()
 
                     st.stop()
+
+    if 'pipeline_error' in st.session_state:
+        st.error("EXCEPCIÓN REAL DEL PIPELINE")
+        st.code(st.session_state.pipeline_error)
 
 else:
     st.write("DEBUG DASHBOARD")
