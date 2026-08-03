@@ -462,33 +462,27 @@ if not st.session_state.processed:
 
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
-                    st.write("DEBUG: métricas calculadas")
-                    st.write(metrics['team_distances'])
-                    st.write(metrics)
 
-                    st.stop()
-                    if metrics is None:
-                        st.error("No se generaron métricas. Revisa el procesamiento del vídeo.")
-                        st.stop()
+                    st.write("DEBUG 1: métricas calculadas")
 
-                    # Guardar en sesión UNA SOLA VEZ
+                    # Guardar en sesión
                     st.session_state.df = raw_df
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
-                    # Limpiar temporales
-                    for f in [video_path, csv_raw, csv_filtrado, video_ia]:
-                        if os.path.exists(f):
-                            os.remove(f)
+                    st.write("DEBUG 2: session_state guardado")
+                    st.write(st.session_state.processed)
 
-                    # Liberar memoria explícitamente
-                    del ball_rows
-                    gc.collect()
+                    # NO BORRES ARCHIVOS TODAVÍA
+                    # for f in [video_path, csv_raw, csv_filtrado, video_ia]:
+                    #     if os.path.exists(f):
+                    #         os.remove(f)
 
                     status.update(label="Análisis completado con éxito", state="complete")
 
-                    st.success("Pipeline finalizado correctamente")
+                    st.write("DEBUG 3: antes del dashboard")
 
+                    # Fuerza recarga
                     st.rerun()
 
                 except Exception as e:
@@ -496,41 +490,10 @@ if not st.session_state.processed:
                     st.exception(e)
                     st.stop()
 
-                # =========================
-                # MOSTRAR RESULTADOS INMEDIATAMENTE
-                # =========================
-                st.divider()
-                st.header("Informe Telemetrico Activo")
-
-                dist_home = metrics['team_distances'].get('home', 0.0)
-                dist_away = metrics['team_distances'].get('away', 0.0)
-                inter_df = metrics.get('inter_df', pd.DataFrame())
-
-                if inter_df.empty or 'inter_distance' not in inter_df.columns:
-                    avg_inter_dist = 0.0
-                else:
-                    avg_inter_dist = float(inter_df['inter_distance'].mean())
-
-                m1, m2, m3, m4, m5 = st.columns(5)
-
-                with m1:
-                    st.metric(f"Posesión {home_team_input}", f"{metrics['poss_home']}%")
-
-                with m2:
-                    st.metric(f"Posesión {away_team_input}", f"{metrics['poss_away']}%")
-
-                with m3:
-                    st.metric(f"Dist. Total {home_team_input}", f"{dist_home:.1f} m")
-
-                with m4:
-                    st.metric(f"Dist. Total {away_team_input}", f"{dist_away:.1f} m")
-
-                with m5:
-                    st.metric("Dist. Inter-Centroides", f"{avg_inter_dist:.1f} m")
-
-                st.success("Resultados cargados correctamente")
-
 else:
+    st.write("DEBUG DASHBOARD")
+    st.write(st.session_state.processed)
+    st.write(type(st.session_state.metrics))
     # Cargar variables guardadas en sesión
     home_team = st.session_state.home_team
     away_team = st.session_state.away_team
