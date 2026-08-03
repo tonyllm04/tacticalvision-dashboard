@@ -437,28 +437,37 @@ if not st.session_state.processed:
 
                     raw_df['class'] = 'player'
 
-                    # Añadir balón como filas independientes
-                    ball_rows = raw_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
+                    # Añadir balón como filas independientes (seguro)
+                    if {'balon_x', 'balon_y'}.issubset(raw_df.columns):
 
-                    ball_rows = ball_rows[
-                        (ball_rows['balon_x'] != -1) &
-                        (ball_rows['balon_y'] != -1)
-                    ]
+                        ball_rows = raw_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
 
-                    ball_rows = ball_rows.rename(columns={
-                        'balon_x': 'x',
-                        'balon_y': 'y'
-                    })
+                        ball_rows = ball_rows[
+                            (ball_rows['balon_x'].notna()) &
+                            (ball_rows['balon_y'].notna()) &
+                            (ball_rows['balon_x'] != -1) &
+                            (ball_rows['balon_y'] != -1)
+                        ]
 
-                    ball_rows['id'] = 9999
-                    ball_rows['team'] = 'ball'
-                    ball_rows['class'] = 'ball'
+                        if not ball_rows.empty:
+                            ball_rows = ball_rows.rename(columns={
+                                'balon_x': 'x',
+                                'balon_y': 'y'
+                            })
 
-                    # Unir jugadores y balón
-                    raw_df = pd.concat([
-                        raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
-                        ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
-                    ], ignore_index=True)
+                            ball_rows['id'] = 9999
+                            ball_rows['team'] = 'ball'
+                            ball_rows['class'] = 'ball'
+
+                            raw_df = pd.concat([
+                                raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
+                                ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
+                            ], ignore_index=True)
+                        else:
+                            raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
+
+                    else:
+                        raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
 
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
