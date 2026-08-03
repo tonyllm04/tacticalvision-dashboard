@@ -496,16 +496,18 @@ if not st.session_state.processed:
                     st.write("DEBUG 3: antes del dashboard")
 
                     # Fuerza recarga
-                    st.rerun()
+                    #st.rerun()
 
                 except Exception as e:
                     status.update(label="Error en el pipeline", state="error")
 
-                    # Guardar el error en sesión para mostrarlo fuera del status
                     import traceback
-                    st.session_state.pipeline_error = traceback.format_exc()
+                    error_text = traceback.format_exc()
 
-                    st.stop()
+                    st.error("EXCEPCIÓN REAL DEL PIPELINE")
+                    st.code(error_text)
+
+                    raise e
 
     if 'pipeline_error' in st.session_state:
         st.error("EXCEPCIÓN REAL DEL PIPELINE")
