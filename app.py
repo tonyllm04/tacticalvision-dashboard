@@ -298,7 +298,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 60.0:  # umbral de tus scripts
+            if closest['dist'] < 18.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -311,10 +311,14 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
         possession_counts[current_possessor] += 1
 
-    total_frames = len(frames_list)
+    total_valid = possession_counts['home'] + possession_counts['away']
 
-    poss_home = round((possession_counts['home'] / total_frames) * 100) if total_frames > 0 else 50
-    poss_away = round((possession_counts['away'] / total_frames) * 100) if total_frames > 0 else 50
+    if total_valid > 0:
+        poss_home = round(possession_counts['home'] / total_valid * 100)
+        poss_away = round(possession_counts['away'] / total_valid * 100)
+    else:
+        poss_home = 50
+        poss_away = 50
 
     st.write("DEBUG distancias equipo:", team_distances)
     st.write("DEBUG jugadores válidos:", player_mask.sum())
@@ -421,6 +425,8 @@ if not st.session_state.processed:
                     raw_df = pd.read_csv(csv_filtrado)
 
                     st.write(f"DEBUG filas CSV filtrado: {len(raw_df)}")
+                    st.write('Rango X:', raw_df['x'].min(), raw_df['x'].max())
+                    st.write('Rango Y:', raw_df['y'].min(), raw_df['y'].max())
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
@@ -579,7 +585,46 @@ else:
         
         with col_map:
             fig, ax = plt.subplots(figsize=(10, 6.8))
-            draw_football_pitch(ax, slate_mode=True)
+            fig.patch.set_facecolor('#0f172a')
+            ax.set_facecolor('#1f7a1f')
+
+            # Campo verde real
+            ax.add_patch(patches.Rectangle((0, 0), 105, 68,
+                                        facecolor='#1f7a1f',
+                                        edgecolor='white', lw=2))
+
+            # Línea central
+            ax.plot([52.5, 52.5], [0, 68], color='white', lw=2)
+
+            # Círculo central
+            ax.add_patch(plt.Circle((52.5, 34), 9.15,
+                                    fill=False, color='white', lw=2))
+
+            # Áreas grandes
+            ax.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32,
+                                        fill=False, edgecolor='white', lw=2))
+            ax.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32,
+                                        fill=False, edgecolor='white', lw=2))
+
+            # Áreas pequeñas
+            ax.add_patch(patches.Rectangle((0, 24.84), 5.5, 18.32,
+                                        fill=False, edgecolor='white', lw=2))
+            ax.add_patch(patches.Rectangle((105-5.5, 24.84), 5.5, 18.32,
+                                        fill=False, edgecolor='white', lw=2))
+
+            # Porterías
+            ax.plot([-2, 0], [30.34, 30.34], color='white', lw=3)
+            ax.plot([-2, 0], [37.66, 37.66], color='white', lw=3)
+            ax.plot([-2, -2], [30.34, 37.66], color='white', lw=3)
+
+            ax.plot([105, 107], [30.34, 30.34], color='white', lw=3)
+            ax.plot([105, 107], [37.66, 37.66], color='white', lw=3)
+            ax.plot([107, 107], [30.34, 37.66], color='white', lw=3)
+
+            ax.set_xlim(-3, 108)
+            ax.set_ylim(68, 0)
+            ax.set_aspect('equal')
+            ax.axis('off')
             
             frame_df = df[df['frame'] == selected_frame]
             
@@ -624,7 +669,7 @@ else:
                     pass
                     
             plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=False, facecolor='#1e293b')
-            st.pyplot(fig)
+            st.pyplot(fig, clear_figure=True)
             
         with col_pedagogic:
             st.subheader("Análisis Táctico de Centroides")
@@ -664,7 +709,27 @@ else:
         
         with col_heat:
             fig_heat, ax_heat = plt.subplots(figsize=(10, 6.8))
-            draw_football_pitch(ax_heat, slate_mode=True)
+            fig_heat.patch.set_facecolor('#0f172a')
+            ax_heat.set_facecolor('#1f7a1f')
+
+            # Campo verde
+            ax_heat.add_patch(patches.Rectangle((0, 0), 105, 68,
+                                                facecolor='#1f7a1f',
+                                                edgecolor='white', lw=2))
+
+            ax_heat.plot([52.5, 52.5], [0, 68], color='white', lw=2)
+            ax_heat.add_patch(plt.Circle((52.5, 34), 9.15,
+                                        fill=False, color='white', lw=2))
+
+            ax_heat.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32,
+                                                fill=False, edgecolor='white', lw=2))
+            ax_heat.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32,
+                                                fill=False, edgecolor='white', lw=2))
+
+            ax_heat.set_xlim(0, 105)
+            ax_heat.set_ylim(68, 0)
+            ax_heat.set_aspect('equal')
+            ax_heat.axis('off')
             
             if heatmap_choice == home_team:
                 team_data = df[df['team'] == 'home']
@@ -684,12 +749,12 @@ else:
                 sns.kdeplot(
                     x=team_data['x'], y=team_data['y'],
                     fill=True, thresh=0.05, levels=20, cmap=color_theme,
-                    alpha=0.65, ax=ax_heat, zorder=3
+                    alpha=0.80, bw_adjust=0.7, ax=ax_heat, zorder=3
                 )
             else:
                 st.warning("Datos insuficientes para generar el mapa de calor en esta categoría.")
                 
-            st.pyplot(fig_heat)
+            st.pyplot(fig_heat, clear_figure=True)
             
         with col_heat_info:
             st.subheader("Interpretación Telemétrica")
