@@ -236,17 +236,15 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     players['distancia_m'] = np.sqrt(players['dx']**2 + players['dy']**2)
 
     # Filtrado realista en metros
-    UMBRAL_SALTO_M = 3.5      # salto imposible entre frames
-    UMBRAL_RUIDO_M = 0.05     # menos de 5 cm es ruido
+    UMBRAL_SALTO_M = 3.0      # salto imposible entre frames
+    UMBRAL_RUIDO_M = 0.02     # menos de 5 cm es ruido
 
     players.loc[players['distancia_m'] > UMBRAL_SALTO_M, 'distancia_m'] = 0.0
     players.loc[players['distancia_m'] < UMBRAL_RUIDO_M, 'distancia_m'] = 0.0
 
     players['distancia_m'] = players['distancia_m'].fillna(0.0)
 
-    # Si procesas 1 de cada 3 frames
-    FRAME_STRIDE = 3
-    players['distancia_m'] = players['distancia_m'] * FRAME_STRIDE
+    players['distancia_m'] = players['distancia_m']
 
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
@@ -278,62 +276,51 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # Posesión simple con inercia
-    frames_list = df['frame'].unique()
-    possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
+    # =========================
+    # Posesión simple por proximidad balón-jugador
+    # =========================
+    ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].copy()
+    players_df = df[df['class'] == 'player'][['frame', 'team', 'x', 'y']].copy()
 
-    last_possessor = 'disputed'
-    inertia_counter = 0
-    MAX_INERTIA = 10
+    poss_home = 0
+    poss_away = 0
 
-    for f in frames_list:
-        frame_data = df[df['frame'] == f]
+    for frame, ball in ball_df.groupby('frame'):
+        bx = ball['x'].iloc[0]
+        by = ball['y'].iloc[0]
 
-        ball = frame_data[frame_data['class'] == 'ball']
-        players_f = frame_data[frame_data['class'] == 'player']
+        pframe = players_df[players_df['frame'] == frame]
+        if pframe.empty:
+            continue
 
-        current_possessor = 'disputed'
+        pframe = pframe.copy()
+        pframe['dist_ball'] = ((pframe['x'] - bx)**2 + (pframe['y'] - by)**2)**0.5
 
-        if not ball.empty and not players_f.empty:
-            bx, by = ball.iloc[0]['x'], ball.iloc[0]['y']
+        nearest = pframe.loc[pframe['dist_ball'].idxmin()]
 
-            p_copy = players_f.copy()
-            p_copy['dist'] = np.sqrt((p_copy['x'] - bx)**2 + (p_copy['y'] - by)**2)
+        if nearest['team'] == 'home':
+            poss_home += 1
+        elif nearest['team'] == 'away':
+            poss_away += 1
 
-            closest = p_copy.loc[p_copy['dist'].idxmin()]
+    total_poss = poss_home + poss_away
 
-            if closest['dist'] < 2.0:  # umbral de tus scripts
-                current_possessor = closest['team']
-                last_possessor = current_possessor
-                inertia_counter = MAX_INERTIA
-            else:
-                if inertia_counter > 0:
-                    current_possessor = last_possessor
-                    inertia_counter -= 1
-                else:
-                    current_possessor = 'disputed'
-
-        possession_counts[current_possessor] += 1
-
-    total_frames = possession_counts['home'] + possession_counts['away'] + possession_counts['disputed']
-
-    if total_frames > 0:
-        poss_home = round(possession_counts['home'] / total_frames * 100)
-        poss_away = round(possession_counts['away'] / total_frames * 100)
+    if total_poss > 0:
+        poss_home_pct = round(100 * poss_home / total_poss)
+        poss_away_pct = round(100 * poss_away / total_poss)
     else:
-        poss_home = 50
-        poss_away = 50
+        poss_home_pct = poss_away_pct = 0
 
-    st.write("DEBUG distancias equipo:", team_distances)
-    st.write("DEBUG jugadores válidos:", player_mask.sum())
+        st.write("DEBUG distancias equipo:", team_distances)
+        st.write("DEBUG jugadores válidos:", player_mask.sum())
 
     return {
         'player_distances': player_distances,
         'team_distances': team_distances,
         'centroids': centroids,
         'inter_df': inter_df,
-        'poss_home': poss_home,
-        'poss_away': poss_away
+        'poss_home': poss_home_pct,
+        'poss_away': poss_away_pct,
     }
 
 
@@ -468,7 +455,7 @@ if not st.session_state.processed:
                         'equipo_1': 'home',
                         'equipo_2': 'away'
                     })
-
+                    st.write('Equipos detectados:', raw_df['team'].value_counts())
                     st.write('DEBUG equipos detectados:', raw_df['team'].unique())
                     st.write("DEBUG columnas tras rename:", list(raw_df.columns))
                     st.write(raw_df.head())
@@ -653,6 +640,22 @@ else:
             ax.axis('off')
             
             frame_df = df[df['frame'] == selected_frame]
+
+            # Si el frame elegido no tiene jugadores, usar el más cercano con datos
+            if frame_df[frame_df['class'] == 'player'].empty:
+                frames_validos = (
+                    df[df['class'] == 'player']['frame']
+                    .drop_duplicates()
+                    .sort_values()
+                    .to_numpy()
+                )
+
+                if len(frames_validos) > 0:
+                    idx = np.argmin(np.abs(frames_validos - selected_frame))
+                    selected_frame = int(frames_validos[idx])
+                    frame_df = df[df['frame'] == selected_frame]
+
+            st.caption(f'Fotograma mostrado: {selected_frame}')
             
             # Jugadores Locales
             home_players = frame_df[frame_df['team'] == 'home']
