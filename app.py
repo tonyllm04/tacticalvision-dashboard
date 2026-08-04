@@ -298,7 +298,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 18.0:  # umbral de tus scripts
+            if closest['dist'] < 3.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -425,8 +425,6 @@ if not st.session_state.processed:
                     raw_df = pd.read_csv(csv_filtrado)
 
                     st.write('DEBUG columnas:', raw_df.columns.tolist())
-                    st.write('Rango pos_x:', raw_df['pos_x'].min(), raw_df['pos_x'].max())
-                    st.write('Rango pos_y:', raw_df['pos_y'].min(), raw_df['pos_y'].max())
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
@@ -441,6 +439,23 @@ if not st.session_state.processed:
                         'pos_x': 'x',
                         'pos_y': 'y'
                     })
+                
+                    # =========================
+                    # CONVERSIÓN PÍXELES → METROS
+                    # =========================
+                    FIELD_LENGTH = 105.0
+                    FIELD_WIDTH = 68.0
+
+                    # Resolución aproximada del vídeo
+                    VIDEO_W = 1920
+                    VIDEO_H = 1080
+
+                    raw_df['x'] = raw_df['x'] * (FIELD_LENGTH / VIDEO_W)
+                    raw_df['y'] = raw_df['y'] * (FIELD_WIDTH / VIDEO_H)
+
+                    # Limitar al terreno de juego
+                    raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
+                    raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
                     # Normalizar nombres de equipo del clasificador cromático
                     raw_df['team'] = raw_df['team'].replace({
@@ -473,6 +488,13 @@ if not st.session_state.processed:
                                 'balon_x': 'x',
                                 'balon_y': 'y'
                             })
+
+                            # Convertir balón a metros
+                            ball_rows['x'] = ball_rows['x'] * (FIELD_LENGTH / VIDEO_W)
+                            ball_rows['y'] = ball_rows['y'] * (FIELD_WIDTH / VIDEO_H)
+
+                            ball_rows['x'] = ball_rows['x'].clip(0, FIELD_LENGTH)
+                            ball_rows['y'] = ball_rows['y'].clip(0, FIELD_WIDTH)
 
                             ball_rows['id'] = 9999
                             ball_rows['team'] = 'ball'
@@ -630,13 +652,19 @@ else:
             
             # Jugadores Locales
             home_players = frame_df[frame_df['team'] == 'home']
-            ax.scatter(home_players['x'], home_players['y'], color=home_color, s=140, edgecolor='white', linewidth=1.5, label=home_team, zorder=5)
+            ax.scatter(home_players['x'], home_players['y'],
+                        color=home_color, s=90,
+                        edgecolor='white', linewidth=1.2,
+                        label=home_team, zorder=5)
             for _, row in home_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=7, ha='center', va='center', fontweight='bold', zorder=6)
                 
             # Jugadores Visitantes
             away_players = frame_df[frame_df['team'] == 'away']
-            ax.scatter(away_players['x'], away_players['y'], color=away_color, s=140, edgecolor='white', linewidth=1.5, label=away_team, zorder=5)
+            ax.scatter(away_players['x'], away_players['y'],
+                        color=away_color, s=90,
+                        edgecolor='white', linewidth=1.2,
+                        label=away_team, zorder=5)
             for _, row in away_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=7, ha='center', va='center', fontweight='bold', zorder=6)
                 
@@ -747,9 +775,17 @@ else:
             
             if not team_data.empty and len(team_data) > 5:
                 sns.kdeplot(
-                    x=team_data['x'], y=team_data['y'],
-                    fill=True, thresh=0.05, levels=20, cmap=color_theme,
-                    alpha=0.80, bw_adjust=0.7, ax=ax_heat, zorder=3
+                    data=team_data,
+                    x='x',
+                    y='y',
+                    fill=True,
+                    cmap=color_theme,
+                    alpha=0.55,
+                    bw_adjust=0.6,
+                    levels=40,
+                    thresh=0.02,
+                    ax=ax_heat,
+                    zorder=3
                 )
             else:
                 st.warning("Datos insuficientes para generar el mapa de calor en esta categoría.")
