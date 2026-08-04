@@ -232,17 +232,21 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     players['distancia_px'] = np.sqrt(players['dx']**2 + players['dy']**2)
 
-    UMBRAL_SALTO = 30.0
-    UMBRAL_RUIDO = 0.8
+    # Ahora x e y YA están en metros
+    players['distancia_m'] = np.sqrt(players['dx']**2 + players['dy']**2)
 
-    players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
-    players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
+    # Filtrado realista en metros
+    UMBRAL_SALTO_M = 3.5      # salto imposible entre frames
+    UMBRAL_RUIDO_M = 0.05     # menos de 5 cm es ruido
 
-    players['distancia_px'] = players['distancia_px'].fillna(0.0)
+    players.loc[players['distancia_m'] > UMBRAL_SALTO_M, 'distancia_m'] = 0.0
+    players.loc[players['distancia_m'] < UMBRAL_RUIDO_M, 'distancia_m'] = 0.0
 
-    K_PIXELS_A_METROS = 0.025
+    players['distancia_m'] = players['distancia_m'].fillna(0.0)
+
+    # Si procesas 1 de cada 3 frames
     FRAME_STRIDE = 3
-    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
+    players['distancia_m'] = players['distancia_m'] * FRAME_STRIDE
 
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
@@ -298,7 +302,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 3.0:  # umbral de tus scripts
+            if closest['dist'] < 2.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -311,11 +315,11 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
         possession_counts[current_possessor] += 1
 
-    total_valid = possession_counts['home'] + possession_counts['away']
+    total_frames = possession_counts['home'] + possession_counts['away'] + possession_counts['disputed']
 
-    if total_valid > 0:
-        poss_home = round(possession_counts['home'] / total_valid * 100)
-        poss_away = round(possession_counts['away'] / total_valid * 100)
+    if total_frames > 0:
+        poss_home = round(possession_counts['home'] / total_frames * 100)
+        poss_away = round(possession_counts['away'] / total_frames * 100)
     else:
         poss_home = 50
         poss_away = 50
@@ -675,16 +679,43 @@ else:
             
             # CENTROIDES
             if not home_players.empty:
-                c_home_x, c_home_y = home_players['x'].mean(), home_players['y'].mean()
-                ax.scatter(c_home_x, c_home_y, color=home_color, s=300, marker='*', edgecolor='white', linewidth=1.5, label=f"Centroide {home_team}", zorder=8)
-                
+                c_home_x = float(home_players['x'].mean())
+                c_home_y = float(home_players['y'].mean())
+
+                ax.scatter(
+                    c_home_x, c_home_y,
+                    color=home_color,
+                    s=420,
+                    marker='*',
+                    edgecolor='black',
+                    linewidth=2.5,
+                    zorder=20
+                )
+
             if not away_players.empty:
-                c_away_x, c_away_y = away_players['x'].mean(), away_players['y'].mean()
-                ax.scatter(c_away_x, c_away_y, color=away_color, s=300, marker='*', edgecolor='white', linewidth=1.5, label=f"Centroide {away_team}", zorder=8)
-                
-            # Línea Inter-Centroides
+                c_away_x = float(away_players['x'].mean())
+                c_away_y = float(away_players['y'].mean())
+
+                ax.scatter(
+                    c_away_x, c_away_y,
+                    color=away_color,
+                    s=420,
+                    marker='*',
+                    edgecolor='black',
+                    linewidth=2.5,
+                    zorder=20
+                )
+
+            # Línea entre centroides
             if not home_players.empty and not away_players.empty:
-                ax.plot([c_home_x, c_away_x], [c_home_y, c_away_y], color='#94a3b8', linestyle=':', linewidth=2, zorder=4)
+                ax.plot(
+                    [c_home_x, c_away_x],
+                    [c_home_y, c_away_y],
+                    color='yellow',
+                    linewidth=2.5,
+                    linestyle='--',
+                    zorder=10
+                )
             
             # Polígono Convex Hull (Bloque Defensivo Local)
             if len(home_players) > 3:
