@@ -424,9 +424,9 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write(f"DEBUG filas CSV filtrado: {len(raw_df)}")
-                    st.write('Rango X:', raw_df['x'].min(), raw_df['x'].max())
-                    st.write('Rango Y:', raw_df['y'].min(), raw_df['y'].max())
+                    st.write('DEBUG columnas:', raw_df.columns.tolist())
+                    st.write('Rango pos_x:', raw_df['pos_x'].min(), raw_df['pos_x'].max())
+                    st.write('Rango pos_y:', raw_df['pos_y'].min(), raw_df['pos_y'].max())
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
