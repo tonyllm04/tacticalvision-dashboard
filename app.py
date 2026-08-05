@@ -283,7 +283,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     last_team = None
 
     # Distancia máxima balón-jugador para considerar posesión (metros)
-    UMBRAL_POSESION = 3.0
+    UMBRAL_POSESION = 8.0
 
     for _, ball in ball_df.iterrows():
 
