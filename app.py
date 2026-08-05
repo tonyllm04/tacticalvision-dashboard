@@ -276,51 +276,62 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # =========================
-    # Posesión simple por proximidad balón-jugador
-    # =========================
-    ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].copy()
-    players_df = df[df['class'] == 'player'][['frame', 'team', 'x', 'y']].copy()
+    # --- Posesión robusta basada en proximidad al balón ---
+    ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].drop_duplicates()
 
-    poss_home = 0
-    poss_away = 0
+    possession_counts = {'home': 0, 'away': 0}
+    last_team = None
 
-    for frame, ball in ball_df.groupby('frame'):
-        bx = ball['x'].iloc[0]
-        by = ball['y'].iloc[0]
+    # Distancia máxima balón-jugador para considerar posesión (metros)
+    UMBRAL_POSESION = 3.0
 
-        pframe = players_df[players_df['frame'] == frame]
-        if pframe.empty:
+    for _, ball in ball_df.iterrows():
+
+        # Ignorar coordenadas inválidas
+        if pd.isna(ball['x']) or pd.isna(ball['y']):
             continue
 
-        pframe = pframe.copy()
-        pframe['dist_ball'] = ((pframe['x'] - bx)**2 + (pframe['y'] - by)**2)**0.5
+        frame_players = players[players['frame'] == ball['frame']]
 
-        nearest = pframe.loc[pframe['dist_ball'].idxmin()]
+        if frame_players.empty:
+            continue
 
-        if nearest['team'] == 'home':
-            poss_home += 1
-        elif nearest['team'] == 'away':
-            poss_away += 1
+        frame_players = frame_players.copy()
 
-    total_poss = poss_home + poss_away
+        frame_players['dist_ball'] = np.sqrt(
+            (frame_players['x'] - ball['x'])**2 +
+            (frame_players['y'] - ball['y'])**2
+        )
 
-    if total_poss > 0:
-        poss_home_pct = round(100 * poss_home / total_poss)
-        poss_away_pct = round(100 * poss_away / total_poss)
+        nearest = frame_players.loc[frame_players['dist_ball'].idxmin()]
+
+        # Solo asignar posesión si algún jugador está realmente cerca del balón
+        if nearest['dist_ball'] <= UMBRAL_POSESION:
+            team = nearest['team']
+            possession_counts[team] += 1
+            last_team = team
+        elif last_team is not None:
+            # Mantener la última posesión durante balones sueltos
+            possession_counts[last_team] += 1
+
+    total_pos = possession_counts['home'] + possession_counts['away']
+
+    if total_pos == 0:
+        poss_home = poss_away = 50
     else:
-        poss_home_pct = poss_away_pct = 0
+        poss_home = round(100 * possession_counts['home'] / total_pos)
+        poss_away = round(100 * possession_counts['away'] / total_pos)
 
-        st.write("DEBUG distancias equipo:", team_distances)
-        st.write("DEBUG jugadores válidos:", player_mask.sum())
+        st.write('DEBUG posesión:', possession_counts)
+        st.write('DEBUG frames balón:', len(ball_df))
 
     return {
         'player_distances': player_distances,
         'team_distances': team_distances,
         'centroids': centroids,
         'inter_df': inter_df,
-        'poss_home': poss_home_pct,
-        'poss_away': poss_away_pct,
+        'poss_home': poss_home,
+        'poss_away': poss_away,
     }
 
 
@@ -350,9 +361,9 @@ if not st.session_state.processed:
         
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
-            home_team_input = st.text_input("Equipo Local (Principal)", "CD Alianza Amateur")
+            home_team_input = st.text_input("Equipo Local (Principal)", "C.F. Damm")
         with sub_col2:
-            away_team_input = st.text_input("Equipo Rival (Visitante)", "Rayo Deportivo")
+            away_team_input = st.text_input("Equipo Rival (Visitante)", "U.E. Sant Andreu")
 
     with col_main_right:
         st.markdown("### Metodología de Análisis")
@@ -416,6 +427,7 @@ if not st.session_state.processed:
                     raw_df = pd.read_csv(csv_filtrado)
 
                     st.write('DEBUG columnas:', raw_df.columns.tolist())
+                    st.write('Frames procesados:', raw_df['frame'].max())
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
