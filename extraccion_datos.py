@@ -51,7 +51,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     writer.writerow(['frame', 'id', 'coords_caja', 'camiseta_path', 'balon_x', 'balon_y'])
 
     frame_count = 0
-    FRAME_STRIDE = 3
+    FRAME_STRIDE = 1
     processed_frames = 0
 
     ultimo_balon_x, ultimo_balon_y = -1, -1
@@ -64,6 +64,9 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     # Ajusta estos puntos según las coordenadas exactas en tus imágenes de 1280x720 o el tamaño nativo.
     PUNTO_PENALTI_IZQ = {"x": 230, "y": 415, "radio": 15}
     PUNTO_PENALTI_DER = {"x": 1770, "y": 415, "radio": 15}
+
+    ball_detections = 0
+    frames_with_ball = set()
 
     try:
         while cap.isOpened():
@@ -85,7 +88,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                 break
 
             # Enviamos el frame modificado (con los puntos de penalti "borrados") a YOLO
-            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=640, conf=0.25, verbose=False)
+            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=1280, conf=0.25, verbose=False)
 
             balon_detectado_este_frame = False
             bx, by = -1, -1
