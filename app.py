@@ -316,14 +316,15 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     total_pos = possession_counts['home'] + possession_counts['away']
 
+    # Guardar debug dentro del diccionario para verlo después del rerun
+    debug_possession = possession_counts.copy()
+    debug_ball_frames = len(ball_df)
+
     if total_pos == 0:
         poss_home = poss_away = 50
     else:
         poss_home = round(100 * possession_counts['home'] / total_pos)
         poss_away = round(100 * possession_counts['away'] / total_pos)
-
-        st.write('DEBUG posesión:', possession_counts)
-        st.write('DEBUG frames balón:', len(ball_df))
 
     return {
         'player_distances': player_distances,
@@ -332,6 +333,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'inter_df': inter_df,
         'poss_home': poss_home,
         'poss_away': poss_away,
+        'debug_possession': debug_possession,
+        'debug_ball_frames': debug_ball_frames,
     }
 
 
@@ -564,6 +567,9 @@ else:
     away_color = st.session_state.away_color
     df = st.session_state.df
     metrics = st.session_state.metrics
+
+    st.write('DEBUG posesión final:', metrics.get('debug_possession'))
+    st.write('DEBUG frames balón:', metrics.get('debug_ball_frames'))
 
     # Encabezado
     st.title("TacticalVision")
