@@ -277,7 +277,14 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     )
 
     # --- Posesión robusta basada en proximidad al balón ---
-    ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].drop_duplicates()
+    ball_df = df[df['class'] == 'ball'].copy()
+
+    # NO filtrar por confianza o usar umbral muy bajo
+    if 'confidence' in ball_df.columns:
+        ball_df = ball_df[ball_df['confidence'] > 0.10]
+
+    st.write('DEBUG detecciones balón tras filtro:', len(ball_df))
+    st.write('DEBUG frames únicos balón:', ball_df['frame'].nunique())
 
     possession_counts = {'home': 0, 'away': 0}
     last_team = None
