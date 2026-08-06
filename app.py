@@ -240,7 +240,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     players['distancia_px'] = players['distancia_px'].fillna(0.0)
 
-    K_PIXELS_A_METROS = 0.025
+    K_PIXELS_A_METROS = 0.25
     FRAME_STRIDE = 3
     players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
 
