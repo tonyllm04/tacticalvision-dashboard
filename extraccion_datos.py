@@ -111,7 +111,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         bx = posible_bx
                         by = posible_by
                         balon_detectado_este_frame = True
-
                         break
             
             # --- Lógica de memoria/inercia normal ---
@@ -148,7 +147,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     finally:
         f.close()
         cap.release()
-
         print(f"\n💾 Dataset generado ocultando los puntos de penalti con éxito.")
 
 if __name__ == "__main__":

@@ -232,19 +232,17 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     players['distancia_px'] = np.sqrt(players['dx']**2 + players['dy']**2)
 
-    # Ahora x e y YA están en metros
-    players['distancia_m'] = np.sqrt(players['dx']**2 + players['dy']**2)
+    UMBRAL_SALTO = 30.0
+    UMBRAL_RUIDO = 0.8
 
-    # Filtrado realista en metros
-    UMBRAL_SALTO_M = 3.0      # salto imposible entre frames
-    UMBRAL_RUIDO_M = 0.02     # menos de 5 cm es ruido
+    players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
+    players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
 
-    players.loc[players['distancia_m'] > UMBRAL_SALTO_M, 'distancia_m'] = 0.0
-    players.loc[players['distancia_m'] < UMBRAL_RUIDO_M, 'distancia_m'] = 0.0
+    players['distancia_px'] = players['distancia_px'].fillna(0.0)
 
-    players['distancia_m'] = players['distancia_m'].fillna(0.0)
-
-    players['distancia_m'] = players['distancia_m']
+    K_PIXELS_A_METROS = 0.025
+    FRAME_STRIDE = 3
+    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
 
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
@@ -276,7 +274,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # 4. POSESIÓN DE BALÓN CON INERCIA
+    # Posesión simple con inercia
     frames_list = df['frame'].unique()
     possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
 
@@ -286,23 +284,21 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     for f in frames_list:
         frame_data = df[df['frame'] == f]
+
         ball = frame_data[frame_data['class'] == 'ball']
-        players_frame = frame_data[frame_data['class'] == 'player']
+        players_f = frame_data[frame_data['class'] == 'player']
 
         current_possessor = 'disputed'
 
-        if not ball.empty and not players_frame.empty:
+        if not ball.empty and not players_f.empty:
             bx, by = ball.iloc[0]['x'], ball.iloc[0]['y']
 
-            p_copy = players_frame.copy()
-            p_copy['dist'] = np.sqrt(
-                (p_copy['x'] - bx)**2 +
-                (p_copy['y'] - by)**2
-            )
+            p_copy = players_f.copy()
+            p_copy['dist'] = np.sqrt((p_copy['x'] - bx)**2 + (p_copy['y'] - by)**2)
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 8.0:
+            if closest['dist'] < 18.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -315,17 +311,17 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
         possession_counts[current_possessor] += 1
 
-    total_frames = len(frames_list)
+    total_valid = possession_counts['home'] + possession_counts['away']
 
-    poss_home = round(
-        possession_counts['home'] / total_frames * 100
-    ) if total_frames > 0 else 50
+    if total_valid > 0:
+        poss_home = round(possession_counts['home'] / total_valid * 100)
+        poss_away = round(possession_counts['away'] / total_valid * 100)
+    else:
+        poss_home = 50
+        poss_away = 50
 
-    poss_away = round(
-        possession_counts['away'] / total_frames * 100
-    ) if total_frames > 0 else 50
-
-    st.write('DEBUG posesión final:', possession_counts)
+    st.write("DEBUG distancias equipo:", team_distances)
+    st.write("DEBUG jugadores válidos:", player_mask.sum())
 
     return {
         'player_distances': player_distances,
@@ -333,7 +329,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'centroids': centroids,
         'inter_df': inter_df,
         'poss_home': poss_home,
-        'poss_away': poss_away,
+        'poss_away': poss_away
     }
 
 
@@ -363,9 +359,9 @@ if not st.session_state.processed:
         
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
-            home_team_input = st.text_input("Equipo Local (Principal)", "C.F. Damm")
+            home_team_input = st.text_input("Equipo Local (Principal)", "CD Alianza Amateur")
         with sub_col2:
-            away_team_input = st.text_input("Equipo Rival (Visitante)", "U.E. Sant Andreu")
+            away_team_input = st.text_input("Equipo Rival (Visitante)", "Rayo Deportivo")
 
     with col_main_right:
         st.markdown("### Metodología de Análisis")
@@ -428,7 +424,9 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write('Frames procesados:', raw_df['frame'].max())
+                    st.write(f"DEBUG filas CSV filtrado: {len(raw_df)}")
+                    st.write('Rango X:', raw_df['x'].min(), raw_df['x'].max())
+                    st.write('Rango Y:', raw_df['y'].min(), raw_df['y'].max())
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
@@ -443,23 +441,6 @@ if not st.session_state.processed:
                         'pos_x': 'x',
                         'pos_y': 'y'
                     })
-                
-                    # =========================
-                    # CONVERSIÓN PÍXELES → METROS
-                    # =========================
-                    FIELD_LENGTH = 105.0
-                    FIELD_WIDTH = 68.0
-
-                    # Resolución aproximada del vídeo
-                    VIDEO_W = 1920
-                    VIDEO_H = 1080
-
-                    raw_df['x'] = raw_df['x'] * (FIELD_LENGTH / VIDEO_W)
-                    raw_df['y'] = raw_df['y'] * (FIELD_WIDTH / VIDEO_H)
-
-                    # Limitar al terreno de juego
-                    raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
-                    raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
                     # Normalizar nombres de equipo del clasificador cromático
                     raw_df['team'] = raw_df['team'].replace({
@@ -468,7 +449,9 @@ if not st.session_state.processed:
                         'equipo_1': 'home',
                         'equipo_2': 'away'
                     })
-                    st.write('Equipos detectados:', raw_df['team'].value_counts())
+
+                    st.write('DEBUG equipos detectados:', raw_df['team'].unique())
+                    st.write("DEBUG columnas tras rename:", list(raw_df.columns))
                     st.write(raw_df.head())
 
                     raw_df['class'] = 'player'
@@ -491,13 +474,6 @@ if not st.session_state.processed:
                                 'balon_y': 'y'
                             })
 
-                            # Convertir balón a metros
-                            ball_rows['x'] = ball_rows['x'] * (FIELD_LENGTH / VIDEO_W)
-                            ball_rows['y'] = ball_rows['y'] * (FIELD_WIDTH / VIDEO_H)
-
-                            ball_rows['x'] = ball_rows['x'].clip(0, FIELD_LENGTH)
-                            ball_rows['y'] = ball_rows['y'].clip(0, FIELD_WIDTH)
-
                             ball_rows['id'] = 9999
                             ball_rows['team'] = 'ball'
                             ball_rows['class'] = 'ball'
@@ -515,11 +491,14 @@ if not st.session_state.processed:
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
 
+                    st.write("DEBUG 1: métricas calculadas")
+
                     # Guardar en sesión
                     st.session_state.df = raw_df
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
+                    st.write("DEBUG 2: session_state guardado")
                     st.write(st.session_state.processed)
 
                     # NO BORRES ARCHIVOS TODAVÍA
@@ -529,15 +508,19 @@ if not st.session_state.processed:
 
                     status.update(label="Análisis completado con éxito", state="complete")
 
+                    st.write("DEBUG 3: antes del dashboard")
+
                     # Fuerza recarga
                     st.rerun()
 
                 except Exception as e:
-                    
                     status.update(label="Error en el pipeline", state="error")
 
+                    import traceback
+                    error_text = traceback.format_exc()
+
                     st.error("EXCEPCIÓN REAL DEL PIPELINE")
-                    st.exception(e)
+                    st.code(error_text)
 
                     raise e
 
@@ -556,9 +539,6 @@ else:
     away_color = st.session_state.away_color
     df = st.session_state.df
     metrics = st.session_state.metrics
-
-    st.write('DEBUG posesión final:', metrics.get('debug_possession'))
-    st.write('DEBUG frames balón:', metrics.get('debug_ball_frames'))
 
     # Encabezado
     st.title("TacticalVision")
@@ -647,38 +627,16 @@ else:
             ax.axis('off')
             
             frame_df = df[df['frame'] == selected_frame]
-
-            # Si el frame elegido no tiene jugadores, usar el más cercano con datos
-            if frame_df[frame_df['class'] == 'player'].empty:
-                frames_validos = (
-                    df[df['class'] == 'player']['frame']
-                    .drop_duplicates()
-                    .sort_values()
-                    .to_numpy()
-                )
-
-                if len(frames_validos) > 0:
-                    idx = np.argmin(np.abs(frames_validos - selected_frame))
-                    selected_frame = int(frames_validos[idx])
-                    frame_df = df[df['frame'] == selected_frame]
-
-            st.caption(f'Fotograma mostrado: {selected_frame}')
             
             # Jugadores Locales
             home_players = frame_df[frame_df['team'] == 'home']
-            ax.scatter(home_players['x'], home_players['y'],
-                        color=home_color, s=90,
-                        edgecolor='white', linewidth=1.2,
-                        label=home_team, zorder=5)
+            ax.scatter(home_players['x'], home_players['y'], color=home_color, s=140, edgecolor='white', linewidth=1.5, label=home_team, zorder=5)
             for _, row in home_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=7, ha='center', va='center', fontweight='bold', zorder=6)
                 
             # Jugadores Visitantes
             away_players = frame_df[frame_df['team'] == 'away']
-            ax.scatter(away_players['x'], away_players['y'],
-                        color=away_color, s=90,
-                        edgecolor='white', linewidth=1.2,
-                        label=away_team, zorder=5)
+            ax.scatter(away_players['x'], away_players['y'], color=away_color, s=140, edgecolor='white', linewidth=1.5, label=away_team, zorder=5)
             for _, row in away_players.iterrows():
                 ax.text(row['x'], row['y'], str(int(row['id'])), color='white', fontsize=7, ha='center', va='center', fontweight='bold', zorder=6)
                 
@@ -689,43 +647,16 @@ else:
             
             # CENTROIDES
             if not home_players.empty:
-                c_home_x = float(home_players['x'].mean())
-                c_home_y = float(home_players['y'].mean())
-
-                ax.scatter(
-                    c_home_x, c_home_y,
-                    color=home_color,
-                    s=420,
-                    marker='*',
-                    edgecolor='black',
-                    linewidth=2.5,
-                    zorder=20
-                )
-
+                c_home_x, c_home_y = home_players['x'].mean(), home_players['y'].mean()
+                ax.scatter(c_home_x, c_home_y, color=home_color, s=300, marker='*', edgecolor='white', linewidth=1.5, label=f"Centroide {home_team}", zorder=8)
+                
             if not away_players.empty:
-                c_away_x = float(away_players['x'].mean())
-                c_away_y = float(away_players['y'].mean())
-
-                ax.scatter(
-                    c_away_x, c_away_y,
-                    color=away_color,
-                    s=420,
-                    marker='*',
-                    edgecolor='black',
-                    linewidth=2.5,
-                    zorder=20
-                )
-
-            # Línea entre centroides
+                c_away_x, c_away_y = away_players['x'].mean(), away_players['y'].mean()
+                ax.scatter(c_away_x, c_away_y, color=away_color, s=300, marker='*', edgecolor='white', linewidth=1.5, label=f"Centroide {away_team}", zorder=8)
+                
+            # Línea Inter-Centroides
             if not home_players.empty and not away_players.empty:
-                ax.plot(
-                    [c_home_x, c_away_x],
-                    [c_home_y, c_away_y],
-                    color='yellow',
-                    linewidth=2.5,
-                    linestyle='--',
-                    zorder=10
-                )
+                ax.plot([c_home_x, c_away_x], [c_home_y, c_away_y], color='#94a3b8', linestyle=':', linewidth=2, zorder=4)
             
             # Polígono Convex Hull (Bloque Defensivo Local)
             if len(home_players) > 3:
@@ -816,17 +747,9 @@ else:
             
             if not team_data.empty and len(team_data) > 5:
                 sns.kdeplot(
-                    data=team_data,
-                    x='x',
-                    y='y',
-                    fill=True,
-                    cmap=color_theme,
-                    alpha=0.55,
-                    bw_adjust=0.6,
-                    levels=40,
-                    thresh=0.02,
-                    ax=ax_heat,
-                    zorder=3
+                    x=team_data['x'], y=team_data['y'],
+                    fill=True, thresh=0.05, levels=20, cmap=color_theme,
+                    alpha=0.80, bw_adjust=0.7, ax=ax_heat, zorder=3
                 )
             else:
                 st.warning("Datos insuficientes para generar el mapa de calor en esta categoría.")
