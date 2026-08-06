@@ -67,141 +67,8 @@ st.markdown("""
 
 
 # ------------------------------------------------------------------------------
-# 2. TRANSFORMACIÓN DE HOMOGRAFÍA Y DIBUJO DE CAMPO
+#  MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
 # ------------------------------------------------------------------------------
-class HomographyTransformer:
-    """
-    Transforma coordenadas en píxeles de la cámara al plano métrico 2D (105m x 68m).
-    """
-    def __init__(self):
-        src_points = np.float32([
-            [210, 450],   # Esquina superior izquierda en imagen
-            [1070, 450],  # Esquina superior derecha en imagen
-            [50, 720],    # Esquina inferior izquierda en imagen
-            [1230, 720]   # Esquina inferior derecha en imagen
-        ])
-        
-        dst_points = np.float32([
-            [0, 0],       # Banda superior izquierda (m)
-            [105, 0],     # Banda superior derecha (m)
-            [0, 68],      # Banda inferior izquierda (m)
-            [105, 68]     # Banda inferior derecha (m)
-        ])
-        
-        self.H, _ = cv2.findHomography(src_points, dst_points)
-
-    def transform_point(self, u, v):
-        point = np.array([u, v, 1.0], dtype=np.float32)
-        transformed = np.dot(self.H, point)
-        x = transformed[0] / transformed[2]
-        y = transformed[1] / transformed[2]
-        return np.clip(x, 0, 105), np.clip(y, 0, 68)
-
-
-def draw_football_pitch(ax, slate_mode=True):
-    line_color = "white"
-
-    # Bandas
-    ax.plot([-100, 2100], [200, 200], color=line_color, linewidth=1.5, alpha=0.6)
-    ax.plot([-150, 2150], [1030, 1030], color=line_color, linewidth=1.5, alpha=0.6)
-
-    # Líneas de meta
-    ax.plot([-100, -150], [200, 1030], color=line_color, linewidth=1.5, alpha=0.6)
-    ax.plot([2100, 2150], [200, 1030], color=line_color, linewidth=1.5, alpha=0.6)
-
-    # Medio campo
-    ax.plot([1000, 1000], [200, 1030], color=line_color, linewidth=1.5, alpha=0.6)
-
-    # Círculo central
-    theta = np.linspace(0, 2*np.pi, 100)
-    cx = 1000 + 160 * np.cos(theta)
-    cy = 580 + 190 * np.sin(theta)
-    ax.plot(cx, cy, color=line_color, linewidth=1.5, alpha=0.6)
-
-    # Área izquierda
-    ax.plot([-100, 250], [320, 320], color=line_color, linewidth=1.5, alpha=0.6)
-    ax.plot([250, 230], [320, 880], color=line_color, linewidth=1.5, alpha=0.6)
-    ax.plot([230, -140], [880, 880], color=line_color, linewidth=1.5, alpha=0.6)
-
-    # Área derecha
-    ax.plot([2100, 1750], [320, 320], color=line_color, linewidth=1.5, alpha=0.6)
-    ax.plot([1750, 1770], [320, 880], color=line_color, linewidth=1.5, alpha=0.6)
-    ax.plot([1770, 2140], [880, 880], color=line_color, linewidth=1.5, alpha=0.6)
-
-    ax.set_xlim(-100, 2100)
-    ax.set_ylim(1100, 100)
-    ax.invert_yaxis()
-    ax.axis('off')
-
-
-# ------------------------------------------------------------------------------
-# 3. MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
-# ------------------------------------------------------------------------------
-def generate_tactical_sequence(frames=3600):
-    """
-    Genera secuencia de seguimiento en 2D métrico simulando una fase ofensiva.
-    """
-    data = []
-    np.random.seed(42)
-    
-    for f in range(frames):
-        progress = f / frames
-        # Balón en movimiento
-        ball_x = 35 + progress * 50 + np.sin(f*0.15) * 3
-        ball_y = 20 + progress * 28 + np.cos(f*0.15) * 4
-        
-        data.append({
-            'frame': f, 'id': 99, 'class': 'ball', 
-            'x': ball_x, 'y': ball_y, 'team': 'ball'
-        })
-        
-        # 11 Jugadores Locales
-        local_positions = [
-            (12, 34), # Portero
-            (28 + progress*8, 15 + np.sin(f*0.05)*3), 
-            (26 + progress*9, 28), 
-            (26 + progress*9, 40), 
-            (28 + progress*8, 53 - np.sin(f*0.05)*3), 
-            (42 + progress*12, 18), 
-            (38 + progress*14, 30), 
-            (38 + progress*14, 38), 
-            (42 + progress*12, 50), 
-            (55 + progress*15, 25), 
-            (55 + progress*15, 43)
-        ]
-        
-        for idx, (bx, by) in enumerate(local_positions):
-            data.append({
-                'frame': f, 'id': idx + 1, 'class': 'player',
-                'x': bx + np.random.normal(0, 0.12), 
-                'y': by + np.random.normal(0, 0.12), 
-                'team': 'home'
-            })
-            
-        # 11 Jugadores Visitantes
-        away_positions = [
-            (92, 34), # Portero Rival
-            (68 + progress*8, 10), 
-            (58 + progress*12, 24), 
-            (58 + progress*12, 44), 
-            (68 + progress*8, 58), 
-            (50 + progress*22, 16), 
-            (46 + progress*26, 30), 
-            (46 + progress*26, 38), 
-            (50 + progress*22, 52), 
-            (38 + progress*32, 26), 
-            (38 + progress*32, 42)
-        ]
-        
-        for idx, (bx, by) in enumerate(away_positions):
-            data.append({
-                'frame': f, 'id': idx + 12, 'class': 'player',
-                'x': bx + np.random.normal(0, 0.15), 
-                'y': by + np.random.normal(0, 0.15), 
-                'team': 'away'
-            })
-            
-    return pd.DataFrame(data)
 
 
 def compute_distances_and_metrics(df, min_id_duration_frames=3):
@@ -298,7 +165,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 3.0:  # umbral de tus scripts
+            if closest['dist'] < 8.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -359,9 +226,9 @@ if not st.session_state.processed:
         
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
-            home_team_input = st.text_input("Equipo Local (Principal)", "CD Alianza Amateur")
+            home_team_input = st.text_input("Equipo Local (Principal)", "C.F. Damm")
         with sub_col2:
-            away_team_input = st.text_input("Equipo Rival (Visitante)", "Rayo Deportivo")
+            away_team_input = st.text_input("Equipo Rival (Visitante)", "U.E. Sant Andreu")
 
     with col_main_right:
         st.markdown("### Metodología de Análisis")
@@ -423,6 +290,13 @@ if not st.session_state.processed:
                         raise FileNotFoundError(f"No se generó el archivo {csv_filtrado}")
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
+
+                    st.write('DEBUG clases:', raw_df['class'].value_counts())
+                    st.write('DEBUG equipos:', raw_df['team'].value_counts())
+
+                    ball_debug = raw_df[raw_df['class']=='ball']
+                    st.write('DEBUG filas balón:', len(ball_debug))
+                    st.write(ball_debug.head())
 
                     st.write('DEBUG columnas:', raw_df.columns.tolist())
 
@@ -596,12 +470,18 @@ else:
     with tab_projection:
         st.subheader("Plano Métrico 2D Interactivo (Homografía Rectificada)")
         
-        selected_frame = st.slider(
-            "Seleccionar Instante (Fotograma):", 
-            min_value=int(df['frame'].min()), 
-            max_value=int(df['frame'].max()), 
-            value=0
+        frames_disponibles = sorted(df['frame'].unique())
+
+        selected_frame = st.select_slider(
+            'Seleccionar instante (fotograma):',
+            options=frames_disponibles,
+            value=frames_disponibles[len(frames_disponibles)//2]
         )
+
+        frame_df = df[df['frame'] == selected_frame]
+
+        st.write('Fotograma mostrado:', selected_frame)
+        st.write('Jugadores en frame:', len(frame_df[frame_df['class']=='player']))
         
         col_map, col_pedagogic = st.columns([2, 1])
         
