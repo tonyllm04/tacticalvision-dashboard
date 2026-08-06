@@ -276,55 +276,56 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # ------------------ POSESIÓN ------------------
-    possession_counts = {'home': 0, 'away': 0}
-    last_possessor = None
+    # 4. POSESIÓN DE BALÓN CON INERCIA
+    frames_list = df['frame'].unique()
+    possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
 
-    ball_frames = raw_df[
-        raw_df['balon_x'].notna() &
-        raw_df['balon_y'].notna() &
-        (raw_df['balon_x'] >= 0) &
-        (raw_df['balon_y'] >= 0)
-    ]
+    last_possessor = 'disputed'
+    inertia_counter = 0
+    MAX_INERTIA = 10
 
-    for frame in sorted(ball_frames['frame'].unique()):
-        frame_df = raw_df[raw_df['frame'] == frame]
+    for f in frames_list:
+        frame_data = df[df['frame'] == f]
+        ball = frame_data[frame_data['class'] == 'ball']
+        players_frame = frame_data[frame_data['class'] == 'player']
 
-        bx = frame_df['balon_x'].iloc[0]
-        by = frame_df['balon_y'].iloc[0]
+        current_possessor = 'disputed'
 
-        jugadores = frame_df[
-            frame_df['team'].isin(['home', 'away'])
-        ].copy()
+        if not ball.empty and not players_frame.empty:
+            bx, by = ball.iloc[0]['x'], ball.iloc[0]['y']
 
-        if jugadores.empty:
-            continue
+            p_copy = players_frame.copy()
+            p_copy['dist'] = np.sqrt(
+                (p_copy['x'] - bx)**2 +
+                (p_copy['y'] - by)**2
+            )
 
-        jugadores['dist_ball'] = np.sqrt(
-            (jugadores['x_m'] - bx)**2 +
-            (jugadores['y_m'] - by)**2
-        )
+            closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-        nearest = jugadores.loc[jugadores['dist_ball'].idxmin()]
+            if closest['dist'] < 8.0:
+                current_possessor = closest['team']
+                last_possessor = current_possessor
+                inertia_counter = MAX_INERTIA
+            else:
+                if inertia_counter > 0:
+                    current_possessor = last_possessor
+                    inertia_counter -= 1
+                else:
+                    current_possessor = 'disputed'
 
-        # solo contamos posesión si el balón está realmente cerca
-        if nearest['dist_ball'] < 3.5:
-            current = nearest['team']
-            possession_counts[current] += 1
-            last_possessor = current
-        elif last_possessor is not None:
-            possession_counts[last_possessor] += 1
+        possession_counts[current_possessor] += 1
 
-    total_poss = possession_counts['home'] + possession_counts['away']
+    total_frames = len(frames_list)
 
-    if total_poss == 0:
-        poss_home = poss_away = 50.0
-    else:
-        poss_home = round(100 * possession_counts['home'] / total_poss, 1)
-        poss_away = round(100 * possession_counts['away'] / total_poss, 1)
+    poss_home = round(
+        possession_counts['home'] / total_frames * 100
+    ) if total_frames > 0 else 50
+
+    poss_away = round(
+        possession_counts['away'] / total_frames * 100
+    ) if total_frames > 0 else 50
 
     st.write('DEBUG posesión final:', possession_counts)
-    st.write('DEBUG frames balón:', len(ball_frames))
 
     return {
         'player_distances': player_distances,
