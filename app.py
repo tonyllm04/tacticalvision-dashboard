@@ -546,7 +546,7 @@ if not st.session_state.processed:
                     st.write("DEBUG 3: antes del dashboard")
 
                     # Fuerza recarga
-                    st.rerun()
+                    #st.rerun()
 
                 except Exception as e:
                     
