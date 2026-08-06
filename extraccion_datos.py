@@ -39,7 +39,7 @@ def extraer_torso_proporcional(frame, box):
 
 def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     print(f"Cargando YOLOv8m para personas y balón...")
-    model = YOLO("yolov8m.pt") 
+    model = YOLO("yolov8n.pt") 
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened(): 
@@ -147,6 +147,11 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     finally:
         f.close()
         cap.release()
+
+        del model
+        import gc
+        gc.collect()
+
         print(f"\n💾 Dataset generado ocultando los puntos de penalti con éxito.")
 
 if __name__ == "__main__":
