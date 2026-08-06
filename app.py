@@ -291,9 +291,6 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write('DEBUG clases:', raw_df['class'].value_counts())
-                    st.write('DEBUG equipos:', raw_df['team'].value_counts())
-
                     ball_debug = raw_df[raw_df['class']=='ball']
                     st.write('DEBUG filas balón:', len(ball_debug))
                     st.write(ball_debug.head())
@@ -338,13 +335,17 @@ if not st.session_state.processed:
                         'equipo_1': 'home',
                         'equipo_2': 'away'
                     })
-
-                    st.write('DEBUG equipos detectados:', raw_df['team'].unique())
-                    st.write("DEBUG columnas tras rename:", list(raw_df.columns))
                     st.write(raw_df.head())
 
                     raw_df['class'] = 'player'
 
+                    st.write('DEBUG clases:', raw_df['class'].value_counts())
+                    st.write('DEBUG equipos:', raw_df['team'].value_counts())
+
+                    ball_debug = raw_df[raw_df['class']=='ball']
+                    st.write('DEBUG filas balón:', len(ball_debug))
+                    st.write(ball_debug.head())
+                        
                     # Añadir balón como filas independientes (seguro)
                     if {'balon_x', 'balon_y'}.issubset(raw_df.columns):
 
