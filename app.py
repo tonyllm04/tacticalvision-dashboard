@@ -530,7 +530,7 @@ if not st.session_state.processed:
                     status.update(label="Análisis completado con éxito", state="complete")
 
                     # Fuerza recarga
-                    #st.rerun()
+                    st.rerun()
 
                 except Exception as e:
                     
