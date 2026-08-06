@@ -291,10 +291,6 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    ball_debug = raw_df[raw_df['class']=='ball']
-                    st.write('DEBUG filas balón:', len(ball_debug))
-                    st.write(ball_debug.head())
-
                     st.write('DEBUG columnas:', raw_df.columns.tolist())
 
                     if raw_df.empty:
