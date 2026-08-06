@@ -549,13 +549,11 @@ if not st.session_state.processed:
                     st.rerun()
 
                 except Exception as e:
+                    
                     status.update(label="Error en el pipeline", state="error")
 
-                    import traceback
-                    error_text = traceback.format_exc()
-
                     st.error("EXCEPCIÓN REAL DEL PIPELINE")
-                    st.code(error_text)
+                    st.exception(e)
 
                     raise e
 
