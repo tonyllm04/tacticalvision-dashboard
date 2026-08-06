@@ -56,7 +56,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
 
     ultimo_balon_x, ultimo_balon_y = -1, -1
     frames_balon_desaparecido = 0
-    MAX_FRAMES_MEMORIA = 5  # Persistencia en el aire
+    MAX_FRAMES_MEMORIA = 15  # Persistencia en el aire
     #DEBUG balón
     ball_detections = 0
     frames_with_ball = set()
@@ -91,7 +91,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                 break
 
             # Enviamos el frame modificado (con los puntos de penalti "borrados") a YOLO
-            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=1280, conf=0.25, verbose=False)
+            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=1280, conf=0.10, verbose=False)
 
             balon_detectado_este_frame = False
             bx, by = -1, -1

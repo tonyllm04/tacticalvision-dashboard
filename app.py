@@ -276,62 +276,55 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # --- Posesión robusta basada en proximidad al balón ---
-    ball_df = df[df['class'] == 'ball'].copy()
-
-    # NO filtrar por confianza o usar umbral muy bajo
-    if 'confidence' in ball_df.columns:
-        ball_df = ball_df[ball_df['confidence'] > 0.10]
-
-    st.write('DEBUG detecciones balón tras filtro:', len(ball_df))
-    st.write('DEBUG frames únicos balón:', ball_df['frame'].nunique())
-
+    # ------------------ POSESIÓN ------------------
     possession_counts = {'home': 0, 'away': 0}
-    last_team = None
+    last_possessor = None
 
-    # Distancia máxima balón-jugador para considerar posesión (metros)
-    UMBRAL_POSESION = 8.0
+    ball_frames = raw_df[
+        raw_df['balon_x'].notna() &
+        raw_df['balon_y'].notna() &
+        (raw_df['balon_x'] >= 0) &
+        (raw_df['balon_y'] >= 0)
+    ]
 
-    for _, ball in ball_df.iterrows():
+    for frame in sorted(ball_frames['frame'].unique()):
+        frame_df = raw_df[raw_df['frame'] == frame]
 
-        # Ignorar coordenadas inválidas
-        if pd.isna(ball['x']) or pd.isna(ball['y']):
+        bx = frame_df['balon_x'].iloc[0]
+        by = frame_df['balon_y'].iloc[0]
+
+        jugadores = frame_df[
+            frame_df['team'].isin(['home', 'away'])
+        ].copy()
+
+        if jugadores.empty:
             continue
 
-        frame_players = players[players['frame'] == ball['frame']]
-
-        if frame_players.empty:
-            continue
-
-        frame_players = frame_players.copy()
-
-        frame_players['dist_ball'] = np.sqrt(
-            (frame_players['x'] - ball['x'])**2 +
-            (frame_players['y'] - ball['y'])**2
+        jugadores['dist_ball'] = np.sqrt(
+            (jugadores['x_m'] - bx)**2 +
+            (jugadores['y_m'] - by)**2
         )
 
-        nearest = frame_players.loc[frame_players['dist_ball'].idxmin()]
+        nearest = jugadores.loc[jugadores['dist_ball'].idxmin()]
 
-        # Solo asignar posesión si algún jugador está realmente cerca del balón
-        if nearest['dist_ball'] <= UMBRAL_POSESION:
-            team = nearest['team']
-            possession_counts[team] += 1
-            last_team = team
-        elif last_team is not None:
-            # Mantener la última posesión durante balones sueltos
-            possession_counts[last_team] += 1
+        # solo contamos posesión si el balón está realmente cerca
+        if nearest['dist_ball'] < 3.5:
+            current = nearest['team']
+            possession_counts[current] += 1
+            last_possessor = current
+        elif last_possessor is not None:
+            possession_counts[last_possessor] += 1
 
-    total_pos = possession_counts['home'] + possession_counts['away']
+    total_poss = possession_counts['home'] + possession_counts['away']
 
-    # Guardar debug dentro del diccionario para verlo después del rerun
-    debug_possession = possession_counts.copy()
-    debug_ball_frames = len(ball_df)
-
-    if total_pos == 0:
-        poss_home = poss_away = 50
+    if total_poss == 0:
+        poss_home = poss_away = 50.0
     else:
-        poss_home = round(100 * possession_counts['home'] / total_pos)
-        poss_away = round(100 * possession_counts['away'] / total_pos)
+        poss_home = round(100 * possession_counts['home'] / total_poss, 1)
+        poss_away = round(100 * possession_counts['away'] / total_poss, 1)
+
+    st.write('DEBUG posesión final:', possession_counts)
+    st.write('DEBUG frames balón:', len(ball_frames))
 
     return {
         'player_distances': player_distances,
@@ -340,8 +333,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'inter_df': inter_df,
         'poss_home': poss_home,
         'poss_away': poss_away,
-        'debug_possession': debug_possession,
-        'debug_ball_frames': debug_ball_frames,
     }
 
 
