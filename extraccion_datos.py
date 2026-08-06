@@ -57,6 +57,9 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     ultimo_balon_x, ultimo_balon_y = -1, -1
     frames_balon_desaparecido = 0
     MAX_FRAMES_MEMORIA = 5  # Persistencia en el aire
+    #DEBUG balón
+    ball_detections = 0
+    frames_with_ball = set()
 
     # --------------------------------------------------------------------------
     # CONFIGURACIÓN DE OCLUSIÓN (COORDEANADAS DE LOS PUNTOS DE PENALTI)
@@ -114,6 +117,11 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         bx = posible_bx
                         by = posible_by
                         balon_detectado_este_frame = True
+
+                        # DEBUG balón
+                        ball_detections += 1
+                        frames_with_ball.add(frame_count)
+
                         break
             
             # --- Lógica de memoria/inercia normal ---
@@ -150,7 +158,11 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     finally:
         f.close()
         cap.release()
+
         print(f"\n💾 Dataset generado ocultando los puntos de penalti con éxito.")
+        print(f"TOTAL detecciones balón: {ball_detections}")
+        print(f"FRAMES con balón: {len(frames_with_ball)}")
+        print(f"FRAMES procesados: {processed_frames}")
 
 if __name__ == "__main__":
     generar_dataset_deteccion('Partido1.mp4', 'posiciones_partido1_raw.csv', max_frames=3600)
