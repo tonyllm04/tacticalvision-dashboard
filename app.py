@@ -427,7 +427,6 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write('DEBUG columnas:', raw_df.columns.tolist())
                     st.write('Frames procesados:', raw_df['frame'].max())
 
                     if raw_df.empty:
@@ -469,8 +468,6 @@ if not st.session_state.processed:
                         'equipo_2': 'away'
                     })
                     st.write('Equipos detectados:', raw_df['team'].value_counts())
-                    st.write('DEBUG equipos detectados:', raw_df['team'].unique())
-                    st.write("DEBUG columnas tras rename:", list(raw_df.columns))
                     st.write(raw_df.head())
 
                     raw_df['class'] = 'player'
@@ -517,14 +514,11 @@ if not st.session_state.processed:
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
 
-                    st.write("DEBUG 1: métricas calculadas")
-
                     # Guardar en sesión
                     st.session_state.df = raw_df
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
-                    st.write("DEBUG 2: session_state guardado")
                     st.write(st.session_state.processed)
 
                     # NO BORRES ARCHIVOS TODAVÍA
@@ -533,8 +527,6 @@ if not st.session_state.processed:
                     #         os.remove(f)
 
                     status.update(label="Análisis completado con éxito", state="complete")
-
-                    st.write("DEBUG 3: antes del dashboard")
 
                     # Fuerza recarga
                     #st.rerun()
