@@ -189,8 +189,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     st.write("DEBUG distancias equipo:", team_distances)
     st.write("DEBUG jugadores válidos:", player_mask.sum())
-
-    # DEBUG POSESIÓN
     st.write("DEBUG posesión conteo:", possession_counts)
     st.write("DEBUG total válidos:", total_valid)
     st.write("DEBUG posesión final:", poss_home, poss_away)
@@ -437,8 +435,6 @@ if not st.session_state.processed:
         st.code(st.session_state.pipeline_error)
 
 else:
-    st.write("DEBUG DASHBOARD")
-    st.write(st.session_state.processed)
     # Cargar variables guardadas en sesión
     home_team = st.session_state.home_team
     away_team = st.session_state.away_team
