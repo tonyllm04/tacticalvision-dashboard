@@ -141,13 +141,13 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # Posesión simple con inercia
-    frames_list = df['frame'].unique()
+    # Posesión robusta
+    frames_list = sorted(df['frame'].unique())
     possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
 
-    last_possessor = 'disputed'
+    last_possessor = None
+    MAX_INERTIA = 15
     inertia_counter = 0
-    MAX_INERTIA = 10
 
     for f in frames_list:
         frame_data = df[df['frame'] == f]
@@ -155,42 +155,45 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         ball = frame_data[frame_data['class'] == 'ball']
         players_f = frame_data[frame_data['class'] == 'player']
 
-        current_possessor = 'disputed'
+        current_possessor = None
 
         if not ball.empty and not players_f.empty:
-            bx, by = ball.iloc[0]['x'], ball.iloc[0]['y']
+            bx, by = ball.iloc[0][['x', 'y']]
 
             p_copy = players_f.copy()
             p_copy['dist'] = np.sqrt((p_copy['x'] - bx)**2 + (p_copy['y'] - by)**2)
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 8.0:  # umbral de tus scripts
+            # Umbral más realista en metros
+            if closest['dist'] <= 8.0:
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
+
+        # Inercia cuando el balón va por el aire
+        if current_possessor is None:
+            if inertia_counter > 0 and last_possessor is not None:
+                current_possessor = last_possessor
+                inertia_counter -= 1
             else:
-                if inertia_counter > 0:
-                    current_possessor = last_possessor
-                    inertia_counter -= 1
-                else:
-                    current_possessor = 'disputed'
+                current_possessor = 'disputed'
 
         possession_counts[current_possessor] += 1
 
-    total_valid = possession_counts['home'] + possession_counts['away']
+    # Cálculo porcentual
+    total_frames = sum(possession_counts.values())
 
-    if total_valid > 0:
-        poss_home = round(possession_counts['home'] / total_valid * 100)
-        poss_away = round(possession_counts['away'] / total_valid * 100)
+    if total_frames > 0:
+        poss_home = round(100 * possession_counts['home'] / total_frames)
+        poss_away = round(100 * possession_counts['away'] / total_frames)
     else:
-        poss_home = 50
-        poss_away = 50
+        poss_home = 0
+        poss_away = 0
 
-    print("DEBUG POSESIÓN CONSOLE", possession_counts, total_valid, poss_home, poss_away)
+    print('POSESION DEBUG:', possession_counts, total_frames, poss_home, poss_away)
 
     st.write("DEBUG posesión conteo:", possession_counts)
-    st.write("DEBUG total válidos:", total_valid)
     st.write("DEBUG posesión final:", poss_home, poss_away)
 
     return {
