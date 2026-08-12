@@ -165,7 +165,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 8.0:  # umbral de tus scripts
+            if closest['dist'] < 2.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -291,7 +291,9 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write('DEBUG columnas:', raw_df.columns.tolist())
+                    st.write('DEBUG equipos detectados:', raw_df['team'].unique())
+                    st.write("DEBUG columnas tras rename:", list(raw_df.columns))
+                    st.write(raw_df.head())
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
@@ -335,12 +337,21 @@ if not st.session_state.processed:
 
                     raw_df['class'] = 'player'
 
+                    # DEBUG POSESIÓN
                     st.write('DEBUG clases:', raw_df['class'].value_counts())
-                    st.write('DEBUG equipos:', raw_df['team'].value_counts())
 
-                    ball_debug = raw_df[raw_df['class']=='ball']
-                    st.write('DEBUG filas balón:', len(ball_debug))
-                    st.write(ball_debug.head())
+                    if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
+                        ball_debug = raw_df[
+                            (raw_df['balon_x'].notna()) &
+                            (raw_df['balon_y'].notna()) &
+                            (raw_df['balon_x'] != -1) &
+                            (raw_df['balon_y'] != -1)
+                        ]
+
+                        st.write('Frames balón detectados:', ball_debug['frame'].nunique())
+                        st.write(ball_debug[['frame', 'balon_x', 'balon_y']].head())
+                    else:
+                        st.write('NO EXISTEN COLUMNAS balon_x / balon_y')
                         
                     # Añadir balón como filas independientes (seguro)
                     if {'balon_x', 'balon_y'}.issubset(raw_df.columns):
@@ -375,6 +386,7 @@ if not st.session_state.processed:
                                 raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
                                 ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
                             ], ignore_index=True)
+                            st.write(raw_df['team'].value_counts())
                         else:
                             raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
 
