@@ -439,7 +439,6 @@ if not st.session_state.processed:
 else:
     st.write("DEBUG DASHBOARD")
     st.write(st.session_state.processed)
-    st.write(type(st.session_state.metrics))
     # Cargar variables guardadas en sesión
     home_team = st.session_state.home_team
     away_team = st.session_state.away_team
