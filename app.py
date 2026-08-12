@@ -165,7 +165,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            if closest['dist'] < 2.0:  # umbral de tus scripts
+            if closest['dist'] < 8.0:  # umbral de tus scripts
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -189,6 +189,11 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     st.write("DEBUG distancias equipo:", team_distances)
     st.write("DEBUG jugadores válidos:", player_mask.sum())
+
+    # DEBUG POSESIÓN
+    st.write("DEBUG posesión conteo:", possession_counts)
+    st.write("DEBUG total válidos:", total_valid)
+    st.write("DEBUG posesión final:", poss_home, poss_away)
 
     return {
         'player_distances': player_distances,
@@ -291,7 +296,6 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write('DEBUG equipos detectados:', raw_df['team'].unique())
                     st.write("DEBUG columnas tras rename:", list(raw_df.columns))
                     st.write(raw_df.head())
 
@@ -338,7 +342,6 @@ if not st.session_state.processed:
                     raw_df['class'] = 'player'
 
                     # DEBUG POSESIÓN
-                    st.write('DEBUG clases:', raw_df['class'].value_counts())
 
                     if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
                         ball_debug = raw_df[
