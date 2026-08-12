@@ -187,8 +187,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         poss_home = 50
         poss_away = 50
 
-    st.write("DEBUG distancias equipo:", team_distances)
-    st.write("DEBUG jugadores válidos:", player_mask.sum())
+    print("DEBUG POSESIÓN CONSOLE", possession_counts, total_valid, poss_home, poss_away)
+
     st.write("DEBUG posesión conteo:", possession_counts)
     st.write("DEBUG total válidos:", total_valid)
     st.write("DEBUG posesión final:", poss_home, poss_away)
