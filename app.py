@@ -291,8 +291,8 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write("DEBUG columnas tras rename:", list(raw_df.columns))
-                    st.write(raw_df.head())
+                    st.write("COLUMNAS CSV FILTRADO:")
+                    st.write(list(raw_df.columns))
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
