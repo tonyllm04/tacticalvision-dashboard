@@ -391,6 +391,13 @@ if not st.session_state.processed:
                     else:
                         raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
 
+                    st.write('DEBUG clases finales:')
+                    st.write(raw_df['class'].value_counts())
+
+                    st.write('DEBUG balón final:')
+                    st.write(raw_df[raw_df['class']=='ball'].head())
+                    st.write('Nº filas balón:', len(raw_df[raw_df['class']=='ball']))
+
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
 
