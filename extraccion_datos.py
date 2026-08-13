@@ -140,10 +140,17 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                             nombre_archivo_camiseta = f"{carpeta_camisetas}/f{frame_count}_id{idx}.jpg"
                             cv2.imwrite(nombre_archivo_camiseta, recorte_camiseta)
 
-                        if bx != -1:
-                            print(f"Balón detectado frame {frame_count}: ({bx},{by})")
+                        if bx != -1 and idx == ids[0]:
+                            print(f"Balón detectado frame {frame_count}: ({bx}, {by})")
 
-                        writer.writerow([frame_count, idx, coords_str, nombre_archivo_camiseta, bx, by])
+                        writer.writerow([
+                            frame_count,
+                            idx,
+                            coords_str,
+                            nombre_archivo_camiseta,
+                            int(bx),
+                            int(by)
+                        ])
                 
     except KeyboardInterrupt:
         print("\nInterrupción manual.")
