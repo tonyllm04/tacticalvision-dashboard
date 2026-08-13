@@ -85,7 +85,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                 break
 
             # Enviamos el frame modificado (con los puntos de penalti "borrados") a YOLO
-            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=640, conf=0.25, verbose=False)
+            results = model.track(source=frame, persist=True, classes=[0, 32], imgsz=960, conf=0.10, verbose=False)
 
             balon_detectado_este_frame = False
             bx, by = -1, -1
@@ -139,6 +139,9 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         if recorte_camiseta is not None and recorte_camiseta.size > 0:
                             nombre_archivo_camiseta = f"{carpeta_camisetas}/f{frame_count}_id{idx}.jpg"
                             cv2.imwrite(nombre_archivo_camiseta, recorte_camiseta)
+
+                        if bx != -1:
+                            print(f"Balón detectado frame {frame_count}: ({bx},{by})")
 
                         writer.writerow([frame_count, idx, coords_str, nombre_archivo_camiseta, bx, by])
                 
