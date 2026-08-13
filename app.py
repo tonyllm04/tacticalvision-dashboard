@@ -291,8 +291,9 @@ if not st.session_state.processed:
                     # 3) Cargar CSV filtrado REAL
                     raw_df = pd.read_csv(csv_filtrado)
 
-                    st.write("COLUMNAS CSV FILTRADO:")
-                    st.write(list(raw_df.columns))
+                    # Guardar información de depuración para verla tras el rerun
+                    st.session_state.debug_csv_columns = list(raw_df.columns)
+                    st.session_state.debug_csv_head = raw_df.head().to_dict()
 
                     if raw_df.empty:
                         st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
@@ -460,6 +461,16 @@ else:
         st.error("NO HAY FILAS DE BALÓN EN EL DATAFRAME FINAL")
 
     st.write("Posesión calculada:", metrics['poss_home'], metrics['poss_away'])
+
+    st.markdown('### DEBUG CSV FILTRADO')
+
+    if 'debug_csv_columns' in st.session_state:
+        st.write('Columnas CSV filtrado:')
+        st.write(st.session_state.debug_csv_columns)
+
+    if 'debug_csv_head' in st.session_state:
+        st.write('Primeras filas CSV filtrado:')
+        st.write(pd.DataFrame(st.session_state.debug_csv_head))
 
     # Encabezado
     st.title("TacticalVision")
