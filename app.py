@@ -354,10 +354,17 @@ if not st.session_state.processed:
                     else:
                         st.write('NO EXISTEN COLUMNAS balon_x / balon_y')
                         
-                    # Añadir balón como filas independientes (seguro)
-                    if {'balon_x', 'balon_y'}.issubset(raw_df.columns):
+                    # =====================================================
+                    # AÑADIR BALÓN DESDE EL CSV RAW (NO DESDE EL FILTRADO)
+                    # =====================================================
 
-                        ball_rows = raw_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
+                    raw_df['class'] = 'player'
+
+                    raw_ball_df = pd.read_csv(csv_raw)
+
+                    if {'balon_x', 'balon_y'}.issubset(raw_ball_df.columns):
+
+                        ball_rows = raw_ball_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
 
                         ball_rows = ball_rows[
                             (ball_rows['balon_x'].notna()) &
@@ -366,7 +373,10 @@ if not st.session_state.processed:
                             (ball_rows['balon_y'] != -1)
                         ]
 
+                        st.write('DEBUG filas balón RAW:', len(ball_rows))
+
                         if not ball_rows.empty:
+
                             ball_rows = ball_rows.rename(columns={
                                 'balon_x': 'x',
                                 'balon_y': 'y'
@@ -387,12 +397,13 @@ if not st.session_state.processed:
                                 raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
                                 ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
                             ], ignore_index=True)
-                            st.write(raw_df['team'].value_counts())
+
+                            st.write('DEBUG balón añadido correctamente')
                         else:
-                            raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
+                            st.error('DEBUG: el CSV RAW no contiene filas válidas de balón')
 
                     else:
-                        raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
+                        st.error('DEBUG: el CSV RAW no tiene columnas balon_x/balon_y')
 
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
