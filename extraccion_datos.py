@@ -90,27 +90,25 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             balon_detectado_este_frame = False
             bx, by = -1, -1
 
+            # --- DETECCIÓN DE BALÓN (sin filtro de puntos de penalti) ---
             boxes_objeto = results[0].boxes
+
             if boxes_objeto is not None and len(boxes_objeto) > 0:
                 for box_det in boxes_objeto:
                     cls_id = int(box_det.cls[0])
-                    if cls_id == 32:  # Posible balón
+
+                    # Clase 32 = balón en COCO
+                    if cls_id == 32:
                         bx1, by1, bx2, by2 = box_det.xyxy.int().cpu().tolist()[0]
-                        posible_bx = int((bx1 + bx2) / 2)
-                        posible_by = int((by1 + by2) / 2)
 
-                        dist_izq = ((posible_bx - PUNTO_PENALTI_IZQ["x"])**2 + (posible_by - PUNTO_PENALTI_IZQ["y"])**2)**0.5
-                        dist_der = ((posible_bx - PUNTO_PENALTI_DER["x"])**2 + (posible_by - PUNTO_PENALTI_DER["y"])**2)**0.5
+                        bx = int((bx1 + bx2) / 2)
+                        by = int((by1 + by2) / 2)
 
-                        esta_en_penalti = (dist_izq < PUNTO_PENALTI_IZQ["radio"]) or (dist_der < PUNTO_PENALTI_DER["radio"])
-
-                        if esta_en_penalti:
-                            if ultimo_balon_x == -1 or frames_balon_desaparecido > 3:
-                                continue
-                        
-                        bx = posible_bx
-                        by = posible_by
                         balon_detectado_este_frame = True
+
+                        # DEBUG visible en consola
+                        print(f"🎯 Balón detectado frame {frame_count}: ({bx}, {by})")
+
                         break
             
             # --- Lógica de memoria/inercia normal ---
