@@ -166,7 +166,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
             # Umbral más realista en metros
-            if closest['dist'] <= 8.0:
+            if closest['dist'] <= 20.0:
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
