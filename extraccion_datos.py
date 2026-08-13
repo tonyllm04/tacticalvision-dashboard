@@ -163,4 +163,4 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
         print(f"\n💾 Dataset generado ocultando los puntos de penalti con éxito.")
 
 if __name__ == "__main__":
-    generar_dataset_deteccion('Partido1.mp4', 'posiciones_partido1_raw.csv', max_frames=3600)
+    generar_dataset_deteccion('clipp1.mp4', 'posiciones_partido1_raw.csv', max_frames=3600)
