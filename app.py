@@ -155,7 +155,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         ball = frame_data[frame_data['class'] == 'ball']
         players_f = frame_data[frame_data['class'] == 'player']
 
-        current_possessor = None
+        current_possessor = 'disputed'
 
         if not ball.empty and not players_f.empty:
             bx, by = ball.iloc[0][['x', 'y']]
@@ -165,33 +165,27 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
-            # Umbral más realista en metros
-            if closest['dist'] <= 20.0:
+            # Umbral en metros
+            if closest['dist'] <= 8.0:
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
-
-        # Inercia cuando el balón va por el aire
-        if current_possessor is None:
-            if inertia_counter > 0 and last_possessor is not None:
-                current_possessor = last_possessor
-                inertia_counter -= 1
             else:
-                current_possessor = 'disputed'
+                if inertia_counter > 0 and last_possessor is not None:
+                    current_possessor = last_possessor
+                    inertia_counter -= 1
 
         possession_counts[current_possessor] += 1
 
-    # Cálculo porcentual
-    total_frames = sum(possession_counts.values())
+    # Cálculo porcentual SOLO sobre frames válidos
+    total_valid = possession_counts['home'] + possession_counts['away']
 
-    if total_frames > 0:
-        poss_home = round(100 * possession_counts['home'] / total_frames)
-        poss_away = round(100 * possession_counts['away'] / total_frames)
+    if total_valid > 0:
+        poss_home = round(100 * possession_counts['home'] / total_valid)
+        poss_away = round(100 * possession_counts['away'] / total_valid)
     else:
         poss_home = 0
         poss_away = 0
-
-    print('POSESION DEBUG:', possession_counts, total_frames, poss_home, poss_away)
 
     st.write("DEBUG posesión conteo:", possession_counts)
     st.write("DEBUG posesión final:", poss_home, poss_away)
