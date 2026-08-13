@@ -454,6 +454,22 @@ else:
     df = st.session_state.df
     metrics = st.session_state.metrics
 
+    st.subheader('DEBUG BALÓN EN SESSION')
+
+    st.write('Columnas df:', list(df.columns))
+    st.write('Valores únicos class:', df['class'].unique())
+
+    st.write('Primeras filas del df:')
+    st.write(df.head(10))
+
+    ball_df = df[df['class'] == 'ball']
+    st.write('Filas balón en session:', len(ball_df))
+
+    if not ball_df.empty:
+        st.write(ball_df.head())
+    else:
+        st.error('NO HAY BALL EN SESSION_STATE')
+
     # ================= DEBUG DASHBOARD =================
     st.markdown('---')
     st.subheader('DEBUG DASHBOARD')
@@ -478,27 +494,6 @@ else:
     st.write('Posesión away:', metrics['poss_away'])
 
     st.markdown('---')
-
-    # ===== DEBUG POSESIÓN (VISIBLE EN DASHBOARD) =====
-    st.markdown("### DEBUG POSESIÓN")
-
-    st.write("Clases:")
-    st.write(df['class'].value_counts())
-
-    ball_df = df[df['class'] == 'ball']
-    st.write("Filas balón:", len(ball_df))
-
-    if not ball_df.empty:
-        st.write(ball_df.head())
-
-        st.write("Frames únicos balón:", ball_df['frame'].nunique())
-
-        st.write("Rango X balón:", float(ball_df['x'].min()), float(ball_df['x'].max()))
-        st.write("Rango Y balón:", float(ball_df['y'].min()), float(ball_df['y'].max()))
-    else:
-        st.error("NO HAY FILAS DE BALÓN EN EL DATAFRAME FINAL")
-
-    st.write("Posesión calculada:", metrics['poss_home'], metrics['poss_away'])
 
     st.markdown('### DEBUG CSV FILTRADO')
 
