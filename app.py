@@ -391,13 +391,6 @@ if not st.session_state.processed:
                     else:
                         raw_df = raw_df[['frame', 'id', 'team', 'class', 'x', 'y']].copy()
 
-                    st.write('DEBUG clases finales:')
-                    st.write(raw_df['class'].value_counts())
-
-                    st.write('DEBUG balón final:')
-                    st.write(raw_df[raw_df['class']=='ball'].head())
-                    st.write('Nº filas balón:', len(raw_df[raw_df['class']=='ball']))
-
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
 
@@ -446,6 +439,27 @@ else:
     away_color = st.session_state.away_color
     df = st.session_state.df
     metrics = st.session_state.metrics
+
+    # ===== DEBUG POSESIÓN (VISIBLE EN DASHBOARD) =====
+    st.markdown("### DEBUG POSESIÓN")
+
+    st.write("Clases:")
+    st.write(df['class'].value_counts())
+
+    ball_df = df[df['class'] == 'ball']
+    st.write("Filas balón:", len(ball_df))
+
+    if not ball_df.empty:
+        st.write(ball_df.head())
+
+        st.write("Frames únicos balón:", ball_df['frame'].nunique())
+
+        st.write("Rango X balón:", float(ball_df['x'].min()), float(ball_df['x'].max()))
+        st.write("Rango Y balón:", float(ball_df['y'].min()), float(ball_df['y'].max()))
+    else:
+        st.error("NO HAY FILAS DE BALÓN EN EL DATAFRAME FINAL")
+
+    st.write("Posesión calculada:", metrics['poss_home'], metrics['poss_away'])
 
     # Encabezado
     st.title("TacticalVision")
