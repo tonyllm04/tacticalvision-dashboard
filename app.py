@@ -12,6 +12,8 @@ import os
 import gc
 
 from extraccion_datos import generar_dataset_deteccion
+import extraccion_datos
+st.write("Usando extraccion_datos desde:", extraccion_datos.__file__)
 from visualizar_seguimiento_equipos import procesar_y_limpiar_dataset
 
 # ------------------------------------------------------------------------------
@@ -440,6 +442,31 @@ else:
     away_color = st.session_state.away_color
     df = st.session_state.df
     metrics = st.session_state.metrics
+
+    # ================= DEBUG DASHBOARD =================
+    st.markdown('---')
+    st.subheader('DEBUG DASHBOARD')
+
+    st.write('Filas totales df:', len(df))
+
+    st.write('Clases:')
+    st.write(df['class'].value_counts())
+
+    st.write('Equipos:')
+    st.write(df['team'].value_counts())
+
+    ball_df = df[df['class'] == 'ball']
+    st.write('Filas balón:', len(ball_df))
+
+    if not ball_df.empty:
+        st.write(ball_df[['frame', 'x', 'y']].head())
+    else:
+        st.error('NO HAY FILAS DE BALÓN EN EL DF FINAL')
+
+    st.write('Posesión home:', metrics['poss_home'])
+    st.write('Posesión away:', metrics['poss_away'])
+
+    st.markdown('---')
 
     # ===== DEBUG POSESIÓN (VISIBLE EN DASHBOARD) =====
     st.markdown("### DEBUG POSESIÓN")
