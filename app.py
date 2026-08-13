@@ -454,6 +454,22 @@ else:
     df = st.session_state.df
     metrics = st.session_state.metrics
 
+    st.subheader('DEBUG BALÓN DETALLADO')
+
+    st.write('Filas con balón válido en df original:',
+            len(df[(df['balon_x'] != -1) & (df['balon_y'] != -1)]))
+
+    st.write(
+        df[(df['balon_x'] != -1) & (df['balon_y'] != -1)]
+        [['frame', 'balon_x', 'balon_y']]
+        .head(20)
+    )
+
+    st.write('Máximo balon_x:', df['balon_x'].max())
+    st.write('Máximo balon_y:', df['balon_y'].max())
+    st.write('Mínimo balon_x:', df['balon_x'].min())
+    st.write('Mínimo balon_y:', df['balon_y'].min())
+
     st.subheader('DEBUG BALÓN EN SESSION')
 
     st.write('Columnas df:', list(df.columns))
