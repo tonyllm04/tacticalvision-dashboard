@@ -276,8 +276,14 @@ if not st.session_state.processed:
                     generar_dataset_deteccion(
                         video_path,
                         csv_raw,
-                        max_frames=900
+                        max_frames=3600
                     )
+
+                    debug_raw = pd.read_csv(csv_raw)
+                    st.session_state.debug_raw_ball = {
+                        'filas_raw': len(debug_raw),
+                        'filas_balon': int((debug_raw['balon_x'] != -1).sum())
+                    }
 
                     # 2) Limpieza y clasificación cromática
                     st.write('Limpiando IDs y clasificando equipos...')
@@ -453,6 +459,10 @@ else:
     away_color = st.session_state.away_color
     df = st.session_state.df
     metrics = st.session_state.metrics
+
+    if 'debug_raw_ball' in st.session_state:
+        st.subheader('DEBUG RAW STREAMLIT')
+        st.write(st.session_state.debug_raw_ball)
 
     st.subheader('DEBUG BALÓN DETALLADO')
 
