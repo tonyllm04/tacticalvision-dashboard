@@ -276,7 +276,7 @@ if not st.session_state.processed:
                     generar_dataset_deteccion(
                         video_path,
                         csv_raw,
-                        max_frames=3600
+                        max_frames=1800
                     )
 
                     debug_raw = pd.read_csv(csv_raw)
