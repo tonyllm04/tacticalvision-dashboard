@@ -464,21 +464,16 @@ else:
         st.subheader('DEBUG RAW STREAMLIT')
         st.write(st.session_state.debug_raw_ball)
 
-    st.subheader('DEBUG BALÓN DETALLADO')
+    st.subheader('DEBUG BALÓN FINAL')
 
-    st.write('Filas con balón válido en df original:',
-            len(df[(df['balon_x'] != -1) & (df['balon_y'] != -1)]))
+    ball_df = df[df['class'] == 'ball']
 
-    st.write(
-        df[(df['balon_x'] != -1) & (df['balon_y'] != -1)]
-        [['frame', 'balon_x', 'balon_y']]
-        .head(20)
-    )
+    st.write('Filas balón finales:', len(ball_df))
 
-    st.write('Máximo balon_x:', df['balon_x'].max())
-    st.write('Máximo balon_y:', df['balon_y'].max())
-    st.write('Mínimo balon_x:', df['balon_x'].min())
-    st.write('Mínimo balon_y:', df['balon_y'].min())
+    if not ball_df.empty:
+        st.write(ball_df[['frame', 'x', 'y']].head(20))
+    else:
+        st.error('NO HAY FILAS BALL EN EL DF FINAL')
 
     st.subheader('DEBUG BALÓN EN SESSION')
 
