@@ -10,6 +10,8 @@ import time
 import tempfile
 import os
 import gc
+import requests
+import io
 
 from extraccion_datos import generar_dataset_deteccion
 import extraccion_datos
@@ -143,32 +145,43 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away'])**2
     )
 
-    # Posesión robusta
+    # =====================================================
+    # POSESIÓN ROBUSTA (usa team='ball')
+    # =====================================================
     frames_list = sorted(df['frame'].unique())
     possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
 
     last_possessor = None
-    MAX_INERTIA = 15
+    MAX_INERTIA = 4     #antes 15
+    UMBRAL_POSESION = 1.8   #metros
     inertia_counter = 0
 
     for f in frames_list:
         frame_data = df[df['frame'] == f]
 
-        ball = frame_data[frame_data['class'] == 'ball']
-        players_f = frame_data[frame_data['class'] == 'player']
+        # El balón se identifica por team='ball'
+        ball = frame_data[frame_data['team'] == 'ball']
+
+        # Los jugadores son home/away
+        players_f = frame_data[frame_data['team'].isin(['home', 'away'])]
 
         current_possessor = 'disputed'
 
         if not ball.empty and not players_f.empty:
+
+            # Tomamos el primer balón del frame
             bx, by = ball.iloc[0][['x', 'y']]
 
             p_copy = players_f.copy()
-            p_copy['dist'] = np.sqrt((p_copy['x'] - bx)**2 + (p_copy['y'] - by)**2)
+            p_copy['dist'] = np.sqrt(
+                (p_copy['x'] - bx)**2 +
+                (p_copy['y'] - by)**2
+            )
 
             closest = p_copy.loc[p_copy['dist'].idxmin()]
 
             # Umbral en metros
-            if closest['dist'] <= 8.0:
+            if closest['dist'] <= UMBRAL_POSESION:
                 current_possessor = closest['team']
                 last_possessor = current_possessor
                 inertia_counter = MAX_INERTIA
@@ -179,7 +192,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
         possession_counts[current_possessor] += 1
 
-    # Cálculo porcentual SOLO sobre frames válidos
     total_valid = possession_counts['home'] + possession_counts['away']
 
     if total_valid > 0:
@@ -189,8 +201,9 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         poss_home = 0
         poss_away = 0
 
-    st.write("DEBUG posesión conteo:", possession_counts)
-    st.write("DEBUG posesión final:", poss_home, poss_away)
+    st.write('DEBUG posesión conteo:', possession_counts)
+    st.write('DEBUG total frames válidos:', total_valid)
+    st.write('DEBUG posesión final:', poss_home, poss_away)
 
     return {
         'player_distances': player_distances,
@@ -251,61 +264,37 @@ if not st.session_state.processed:
             
             with st.status("Ejecutando Pipeline Táctico...", expanded=True) as status:
                 try:
-                    st.write("1. Cargando red neuronal YOLOv8...")
-                    time.sleep(0.5)
-                    st.write("2. Inicializando tracker multiobjeto ByteTrack...")
-                    time.sleep(0.5)
-                    st.write("3. Aplicando matriz de Homografía a plano métrico 2D (105x68m)...")
-                    time.sleep(0.5)
-                    st.write("4. Clasificación cromática por K-Means en HSV y filtrado de sombras...")
-                    time.sleep(0.5)
-                    st.write("5. Computando centroides, distancias y posesión con inercia...")
-                    
-                    # Guardar vídeo subido temporalmente
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_video:
-                        tmp_video.write(uploaded_file.read())
-                        video_path = tmp_video.name
+                    st.write("1. Enviando vídeo al servidor de análisis...")
 
-                    # Archivos temporales del pipeline
-                    csv_raw = 'temp_raw.csv'
-                    csv_filtrado = 'temp_filtrado.csv'
-                    video_ia = 'temp_ia.mp4'
-
-                    # 1) Extracción YOLO + ByteTrack
-                    st.write('Extrayendo detecciones del vídeo...')
-                    generar_dataset_deteccion(
-                        video_path,
-                        csv_raw,
-                        max_frames=1800
-                    )
-
-                    debug_raw = pd.read_csv(csv_raw)
-                    st.session_state.debug_raw_ball = {
-                        'filas_raw': len(debug_raw),
-                        'filas_balon': int((debug_raw['balon_x'] != -1).sum())
+                    files = {
+                        'video': (
+                            uploaded_file.name,
+                            uploaded_file.getvalue(),
+                            'video/mp4'
+                        )
                     }
 
-                    # 2) Limpieza y clasificación cromática
-                    st.write('Limpiando IDs y clasificando equipos...')
-                    procesar_y_limpiar_dataset(
-                        video_path,
-                        csv_raw,
-                        video_ia,
-                        csv_filtrado
+                    response = requests.post(
+                        'http://192.168.1.142:8000/procesar',
+                        files=files,
+                        timeout=3600
                     )
 
-                    if not os.path.exists(csv_filtrado):
-                        raise FileNotFoundError(f"No se generó el archivo {csv_filtrado}")
-                    # 3) Cargar CSV filtrado REAL
-                    raw_df = pd.read_csv(csv_filtrado)
+                    if response.status_code != 200:
+                        st.error(f"Error backend: {response.text}")
+                        st.stop()
 
-                    # Guardar información de depuración para verla tras el rerun
-                    st.session_state.debug_csv_columns = list(raw_df.columns)
-                    st.session_state.debug_csv_head = raw_df.head().to_dict()
+                    raw_df = pd.DataFrame(response.json())
+
+                    st.write('DEBUG filas recibidas:', len(raw_df))
 
                     if raw_df.empty:
-                        st.error("El CSV filtrado está vacío. El pipeline no ha generado datos.")
+                        st.error("El backend devolvió un DataFrame vacío.")
                         st.stop()
+
+                    # Guardar depuración
+                    st.session_state.debug_csv_columns = list(raw_df.columns)
+                    st.session_state.debug_csv_head = raw_df.head().to_dict()
 
                     gc.collect()
 
@@ -316,7 +305,11 @@ if not st.session_state.processed:
                         'pos_x': 'x',
                         'pos_y': 'y'
                     })
-                
+
+                    # =====================================================
+                    # AÑADIR BALÓN AL DATAFRAME PRINCIPAL
+                    # =====================================================
+
                     # =========================
                     # CONVERSIÓN PÍXELES → METROS
                     # =========================
@@ -326,6 +319,52 @@ if not st.session_state.processed:
                     # Resolución aproximada del vídeo
                     VIDEO_W = 1920
                     VIDEO_H = 1080
+
+                    raw_df['class'] = 'player'
+
+                    ball_rows = raw_df[
+                        (raw_df['balon_x'].notna()) &
+                        (raw_df['balon_y'].notna()) &
+                        (raw_df['balon_x'] != -1) &
+                        (raw_df['balon_y'] != -1)
+                    ][['frame', 'balon_x', 'balon_y']].drop_duplicates()
+
+                    st.write('DEBUG filas balón antes de añadir:', len(ball_rows))
+
+                    if not ball_rows.empty:
+
+                        ball_rows = ball_rows.rename(columns={
+                            'balon_x': 'x',
+                            'balon_y': 'y'
+                        })
+
+                        # NO convertir aquí: ya vienen convertidos
+                        # ball_rows['x'] = ball_rows['x'] * (FIELD_LENGTH / VIDEO_W)
+                        # ball_rows['y'] = ball_rows['y'] * (FIELD_WIDTH / VIDEO_H)
+
+                        ball_rows['id'] = 9999
+                        ball_rows['team'] = 'ball'
+                        ball_rows['class'] = 'ball'
+                        ball_rows['bbox'] = 'ball'
+
+                        ball_rows['balon_x'] = np.nan
+                        ball_rows['balon_y'] = np.nan
+
+                        raw_df = pd.concat([
+                            raw_df,
+                            ball_rows[raw_df.columns]
+                        ], ignore_index=True)
+
+                        st.write('DEBUG balón tras concat:')
+                        st.write(raw_df[raw_df['class']=='ball'][['frame','x','y']].head())
+
+                        st.success(f'Balón añadido: {len(ball_rows)} filas')
+                        st.write('Filas totales tras añadir balón:', len(raw_df))
+                        st.write('Clases tras añadir balón:')
+                        st.write(raw_df['class'].value_counts())
+
+                    else:
+                        st.error('No se encontraron filas válidas de balón')
 
                     raw_df['x'] = raw_df['x'] * (FIELD_LENGTH / VIDEO_W)
                     raw_df['y'] = raw_df['y'] * (FIELD_WIDTH / VIDEO_H)
@@ -343,8 +382,6 @@ if not st.session_state.processed:
                     })
                     st.write(raw_df.head())
 
-                    raw_df['class'] = 'player'
-
                     # DEBUG POSESIÓN
 
                     if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
@@ -359,57 +396,15 @@ if not st.session_state.processed:
                         st.write(ball_debug[['frame', 'balon_x', 'balon_y']].head())
                     else:
                         st.write('NO EXISTEN COLUMNAS balon_x / balon_y')
-                        
-                    # =====================================================
-                    # AÑADIR BALÓN DESDE EL CSV RAW (NO DESDE EL FILTRADO)
-                    # =====================================================
 
-                    raw_df['class'] = 'player'
+                    st.write('DEBUG antes métricas - class:')
+                    st.write(raw_df['class'].value_counts())
 
-                    raw_ball_df = pd.read_csv(csv_raw)
+                    st.write('DEBUG antes métricas - team:')
+                    st.write(raw_df['team'].value_counts())
 
-                    if {'balon_x', 'balon_y'}.issubset(raw_ball_df.columns):
-
-                        ball_rows = raw_ball_df[['frame', 'balon_x', 'balon_y']].drop_duplicates()
-
-                        ball_rows = ball_rows[
-                            (ball_rows['balon_x'].notna()) &
-                            (ball_rows['balon_y'].notna()) &
-                            (ball_rows['balon_x'] != -1) &
-                            (ball_rows['balon_y'] != -1)
-                        ]
-
-                        st.write('DEBUG filas balón RAW:', len(ball_rows))
-
-                        if not ball_rows.empty:
-
-                            ball_rows = ball_rows.rename(columns={
-                                'balon_x': 'x',
-                                'balon_y': 'y'
-                            })
-
-                            # Convertir balón a metros
-                            ball_rows['x'] = ball_rows['x'] * (FIELD_LENGTH / VIDEO_W)
-                            ball_rows['y'] = ball_rows['y'] * (FIELD_WIDTH / VIDEO_H)
-
-                            ball_rows['x'] = ball_rows['x'].clip(0, FIELD_LENGTH)
-                            ball_rows['y'] = ball_rows['y'].clip(0, FIELD_WIDTH)
-
-                            ball_rows['id'] = 9999
-                            ball_rows['team'] = 'ball'
-                            ball_rows['class'] = 'ball'
-
-                            raw_df = pd.concat([
-                                raw_df[['frame', 'id', 'team', 'class', 'x', 'y']],
-                                ball_rows[['frame', 'id', 'team', 'class', 'x', 'y']]
-                            ], ignore_index=True)
-
-                            st.write('DEBUG balón añadido correctamente')
-                        else:
-                            st.error('DEBUG: el CSV RAW no contiene filas válidas de balón')
-
-                    else:
-                        st.error('DEBUG: el CSV RAW no tiene columnas balon_x/balon_y')
+                    st.write('DEBUG balón detectado antes métricas:')
+                    st.write(raw_df[raw_df['class']=='ball'][['frame','x','y']].head())
 
                     # 4) Métricas
                     metrics = compute_distances_and_metrics(raw_df)
@@ -423,11 +418,6 @@ if not st.session_state.processed:
 
                     st.write("DEBUG 2: session_state guardado")
                     st.write(st.session_state.processed)
-
-                    # NO BORRES ARCHIVOS TODAVÍA
-                    # for f in [video_path, csv_raw, csv_filtrado, video_ia]:
-                    #     if os.path.exists(f):
-                    #         os.remove(f)
 
                     status.update(label="Análisis completado con éxito", state="complete")
 
@@ -460,36 +450,128 @@ else:
     df = st.session_state.df
     metrics = st.session_state.metrics
 
+    st.write("### DEBUG CÁLCULO POSESIÓN")
+
+    raw_df = st.session_state.df
+
+    ball_test = raw_df[raw_df["class"] == "ball"].copy()
+    players_test = raw_df[raw_df["class"] == "player"].copy()
+
+    st.write("Filas balón:", len(ball_test))
+    st.write("Filas jugadores:", len(players_test))
+
+    st.write("Equipos:")
+    st.write(players_test["team"].value_counts())
+
+    if not ball_test.empty:
+        st.write("Primeras posiciones balón:")
+        st.write(ball_test[["frame", "x", "y"]].head(10))
+
+    if not ball_test.empty and not players_test.empty:
+
+        frames_comunes = (
+            set(ball_test["frame"]) &
+            set(players_test["frame"])
+        )
+
+        st.write("Frames con balón:", len(ball_test["frame"].unique()))
+        st.write("Frames con jugadores:", len(players_test["frame"].unique()))
+        st.write("Frames comunes:", len(frames_comunes))
+
+        if frames_comunes:
+
+            frame_debug = sorted(frames_comunes)[0]
+
+            st.write(
+                f"Frame usado para comprobar posesión: {frame_debug}"
+            )
+
+            st.write(
+                raw_df[raw_df["frame"] == frame_debug][
+                    ["frame", "id", "team", "class", "x", "y"]
+                ]
+            )
+
+    # =====================================================
+    # DEBUG DISTANCIAS POSESIÓN
+    # =====================================================
+
+    frame_debug = 171
+
+    jugadores_frame = df[
+        (df['frame'] == frame_debug) &
+        (df['class'] == 'player')
+    ].copy()
+
+    balon_frame = df[
+        (df['frame'] == frame_debug) &
+        (df['class'] == 'ball')
+    ].copy()
+
+    st.write("### DEBUG DISTANCIAS AL BALÓN")
+
+    st.write("Jugadores en frame:", len(jugadores_frame))
+    st.write("Balón en frame:", len(balon_frame))
+
+    if not jugadores_frame.empty and not balon_frame.empty:
+
+        bx = float(balon_frame.iloc[0]['x'])
+        by = float(balon_frame.iloc[0]['y'])
+
+        st.write("Balón:", bx, by)
+
+        jugadores_frame['distancia'] = np.sqrt(
+            (jugadores_frame['x'] - bx) ** 2 +
+            (jugadores_frame['y'] - by) ** 2
+        )
+
+        st.write(
+            jugadores_frame[
+                ['id', 'team', 'x', 'y', 'distancia']
+            ].sort_values('distancia').head(10)
+        )
+
+        st.write(
+            "Distancia mínima:",
+            jugadores_frame['distancia'].min()
+        )
+
+    else:
+        st.write("NO SE PUEDE CALCULAR: falta balón o jugadores")
+
     if 'debug_raw_ball' in st.session_state:
         st.subheader('DEBUG RAW STREAMLIT')
         st.write(st.session_state.debug_raw_ball)
 
-    st.subheader('DEBUG BALÓN FINAL')
+    # DEBUG POSESIÓN FINAL
+    if not jugadores_frame.empty and not balon_frame.empty:
 
-    ball_df = df[df['class'] == 'ball']
+        jugador_cercano = jugadores_frame.loc[
+            jugadores_frame['distancia'].idxmin()
+        ]
 
-    st.write('Filas balón finales:', len(ball_df))
+        st.write("### DEBUG GANADOR POSESIÓN")
 
-    if not ball_df.empty:
-        st.write(ball_df[['frame', 'x', 'y']].head(20))
+        st.write("Jugador más cercano:")
+        st.write(jugador_cercano)
+
+        st.write("Equipo ganador:", jugador_cercano['team'])
+        st.write("Distancia:", jugador_cercano['distancia'])
+
+    st.write('### DEBUG BALÓN FINAL')
+
+    if 'class' in df.columns:
+        ball_final = df[df['class'] == 'ball']
+
+        st.write('Filas balón finales:', len(ball_final))
+
+        if not ball_final.empty:
+            st.write(ball_final[['frame', 'x', 'y']].head())
+        else:
+            st.error('NO HAY FILAS BALL EN EL DF FINAL')
     else:
-        st.error('NO HAY FILAS BALL EN EL DF FINAL')
+        st.error('NO EXISTE COLUMNA class EN EL DF FINAL')
 
-    st.subheader('DEBUG BALÓN EN SESSION')
-
-    st.write('Columnas df:', list(df.columns))
-    st.write('Valores únicos class:', df['class'].unique())
-
-    st.write('Primeras filas del df:')
-    st.write(df.head(10))
-
-    ball_df = df[df['class'] == 'ball']
-    st.write('Filas balón en session:', len(ball_df))
-
-    if not ball_df.empty:
-        st.write(ball_df.head())
-    else:
-        st.error('NO HAY BALL EN SESSION_STATE')
 
     # ================= DEBUG DASHBOARD =================
     st.markdown('---')
@@ -497,34 +579,16 @@ else:
 
     st.write('Filas totales df:', len(df))
 
-    st.write('Clases:')
+    st.write('Valores únicos class:')
     st.write(df['class'].value_counts())
 
     st.write('Equipos:')
     st.write(df['team'].value_counts())
 
-    ball_df = df[df['class'] == 'ball']
-    st.write('Filas balón:', len(ball_df))
-
-    if not ball_df.empty:
-        st.write(ball_df[['frame', 'x', 'y']].head())
-    else:
-        st.error('NO HAY FILAS DE BALÓN EN EL DF FINAL')
-
     st.write('Posesión home:', metrics['poss_home'])
     st.write('Posesión away:', metrics['poss_away'])
 
     st.markdown('---')
-
-    st.markdown('### DEBUG CSV FILTRADO')
-
-    if 'debug_csv_columns' in st.session_state:
-        st.write('Columnas CSV filtrado:')
-        st.write(st.session_state.debug_csv_columns)
-
-    if 'debug_csv_head' in st.session_state:
-        st.write('Primeras filas CSV filtrado:')
-        st.write(pd.DataFrame(st.session_state.debug_csv_head))
 
     # Encabezado
     st.title("TacticalVision")
@@ -751,7 +815,7 @@ else:
                     fill=True,
                     cmap=color_theme,
                     alpha=0.55,
-                    bw_adjust=0.6,
+                    bw_adjust=0.5,
                     levels=40,
                     thresh=0.02,
                     ax=ax_heat,
