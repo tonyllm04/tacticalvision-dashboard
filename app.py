@@ -427,9 +427,9 @@ if not st.session_state.processed:
             st.session_state.home_color = "#10b981"  # Verde Esmeralda
             st.session_state.away_color = "#f43f5e"  # Rosa Coral
             
-            with st.status("Ejecutando Pipeline Táctico...", expanded=True) as status:
+            with st.status("Iniciando análisis asíncrono...", expanded=True) as status:
                 try:
-                    st.write("1. Enviando vídeo al servidor de análisis...")
+                    st.write("1. Enviando archivo de vídeo a la cola de procesamiento...")
 
                     files = {
                         'video': (
@@ -439,15 +439,13 @@ if not st.session_state.processed:
                         )
                     }
 
-                    API_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com/procesar")
+                    BASE_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com")
+                    # Ajusta la URL según el endpoint del backend (asegúrate de retirar '/procesar' si viene en API_URL)
+                    INIT_URL = f"{BASE_URL.rstrip('/')}/procesar" if not BASE_URL.endswith('/procesar') else BASE_URL
 
+                    # 1. Petición inicial para encolar la tarea
                     try:
-                        response = requests.post(
-                            API_URL,
-                            files=files,
-                            timeout=(60, 3600)
-                        )
-                        
+                        response = requests.post(INIT_URL, files=files, timeout=60)
                         if response.status_code != 200:
                             st.error(f"Error Backend ({response.status_code}): {response.text}")
                             st.stop()
@@ -455,10 +453,41 @@ if not st.session_state.processed:
                         st.error(f"Error de conexión con la API: {type(req_err).__name__} - {str(req_err)}")
                         st.stop()
 
-                    raw_df = pd.DataFrame(response.json())
+                    init_data = response.json()
+                    job_id = init_data.get("job_id")
+                    
+                    st.write("2. Vídeo recibido. Tarea iniciada en segundo plano...")
+                    st.write(f"**ID de seguimiento:** `{job_id}`")
+
+                    # 2. Bucle de Polling (Consulta recurrente cada 5 segundos)
+                    STATUS_URL = f"{BASE_URL.rstrip('/')}/status/{job_id}" if not BASE_URL.endswith('/procesar') else f"{BASE_URL.rsplit('/', 1)[0]}/status/{job_id}"
+                    
+                    completado = False
+                    raw_df = pd.DataFrame()
+
+                    while not completado:
+                        time.sleep(5)
+                        res_status = requests.get(STATUS_URL)
+                        
+                        if res_status.status_code == 200:
+                            data_status = res_status.json()
+                            estado_actual = data_status.get("status")
+
+                            if estado_actual == "processing":
+                                status.update(label="Procesando 1.800 frames en el servidor (esto puede tomar varios minutos)...", state="running")
+                            elif estado_actual == "completed":
+                                raw_df = pd.DataFrame(data_status.get("data", []))
+                                completado = True
+                            elif estado_actual == "failed":
+                                err_msg = data_status.get("error", "Error desconocido en el servidor.")
+                                st.error(f"Fallo en el servidor durante la inferencia: {err_msg}")
+                                st.stop()
+                        else:
+                            st.error(f"Error al verificar estado ({res_status.status_code})")
+                            st.stop()
 
                     if raw_df.empty:
-                        st.error("El backend devolvió un DataFrame vacío.")
+                        st.error("El backend devolvió un conjunto de datos vacío.")
                         st.stop()
 
                     # Guardar depuración
@@ -501,15 +530,13 @@ if not st.session_state.processed:
 
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 2. CONVERSIÓN PÍXELES -> METROS (Solo si los datos vienen en píxeles de imagen)
+                    # 2. CONVERSIÓN PÍXELES -> METROS
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
-                    # Clip de seguridad para no desbordar los márgenes del terreno de juego
                     raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0).clip(0, FIELD_LENGTH)
                     raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0).clip(0, FIELD_WIDTH)
 
-                    # Normalizar nombres de equipo del clasificador cromático
                     raw_df['team'] = raw_df['team'].replace({
                         'Equipo_1': 'home',
                         'Equipo_2': 'away',
@@ -517,7 +544,7 @@ if not st.session_state.processed:
                         'equipo_2': 'away'
                     })
 
-                    # 3. MÉTICAS DE RENDIMIENTO
+                    # 3. MÉTRICAS DE RENDIMIENTO
                     metrics = compute_distances_and_metrics(raw_df)
 
                     # Guardar en sesión
@@ -525,18 +552,15 @@ if not st.session_state.processed:
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
-                    status.update(label="Análisis completado con éxito", state="complete")
+                    status.update(label="Análisis de 1800 frames completado con éxito", state="complete")
                     st.rerun()
 
                 except Exception as e:
                     status.update(label="Error en el pipeline", state="error")
-
                     import traceback
                     error_text = traceback.format_exc()
-
                     st.error("EXCEPCIÓN REAL DEL PIPELINE")
                     st.code(error_text)
-
                     raise e
 
     if 'pipeline_error' in st.session_state:
