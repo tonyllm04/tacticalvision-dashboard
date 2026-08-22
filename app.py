@@ -427,9 +427,9 @@ if not st.session_state.processed:
             st.session_state.home_color = "#10b981"  # Verde Esmeralda
             st.session_state.away_color = "#f43f5e"  # Rosa Coral
             
-            with st.status("Iniciando análisis asíncrono...", expanded=True) as status:
+            with st.status("Procesando vídeo en el servidor local de análisis...", expanded=True) as status:
                 try:
-                    st.write("1. Enviando archivo de vídeo a la cola de procesamiento...")
+                    st.write("1. Transfiriendo vídeo al motor de análisis YOLOv8...")
 
                     files = {
                         'video': (
@@ -439,53 +439,23 @@ if not st.session_state.processed:
                         )
                     }
 
-                    # Formato seguro de URL para Polling
-                    BASE_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com").replace("/procesar", "").rstrip("/")
-
+                    # Obtiene la URL de Ngrok desde los Secrets de Streamlit
+                    BASE_URL = st.secrets.get("API_URL", "http://127.0.0.1:8000").rstrip("/")
                     INIT_URL = f"{BASE_URL}/procesar"
 
-                    # 1. Petición inicial para encolar la tarea
-                    try:
-                        response = requests.post(INIT_URL, files=files, timeout=(30,300))
-                        if response.status_code != 200:
-                            st.error(f"Error Backend ({response.status_code}): {response.text}")
-                            st.stop()
-                    except Exception as req_err:
-                        st.error(f"Error de conexión con la API: {type(req_err).__name__} - {str(req_err)}")
+                    # Incluye cabecera para ignorar pantalla de aviso de Ngrok
+                    headers = {"ngrok-skip-browser-warning": "true"}
+
+                    # Aumentamos el timeout a 20 minutos (1200s) para procesamientos largos de YOLO
+                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=1200)
+
+                    if response.status_code != 200:
+                        st.error(f"Error en backend ({response.status_code}): {response.text}")
                         st.stop()
 
-                    init_data = response.json()
-                    job_id = init_data.get("job_id")
-                    
-                    st.write("2. Vídeo recibido. Tarea iniciada en segundo plano...")
-                    st.write(f"**ID de seguimiento:** `{job_id}`")
-
-                    # 2. Bucle de Polling (Consulta recurrente cada 5 segundos)
-                    STATUS_URL = f"{BASE_URL}/status/{job_id}"
-                    
-                    completado = False
-                    raw_df = pd.DataFrame()
-
-                    while not completado:
-                        time.sleep(5)
-                        res_status = requests.get(STATUS_URL)
-                        
-                        if res_status.status_code == 200:
-                            data_status = res_status.json()
-                            estado_actual = data_status.get("status")
-
-                            if estado_actual == "processing":
-                                status.update(label="Procesando 1.800 frames en el servidor (esto puede tomar varios minutos)...", state="running")
-                            elif estado_actual == "completed":
-                                raw_df = pd.DataFrame(data_status.get("data", []))
-                                completado = True
-                            elif estado_actual == "failed":
-                                err_msg = data_status.get("error", "Error desconocido en el servidor.")
-                                st.error(f"Fallo en el servidor durante la inferencia: {err_msg}")
-                                st.stop()
-                        else:
-                            st.error(f"Error al verificar estado ({res_status.status_code})")
-                            st.stop()
+                    st.write("2. Extracción de frames y calibración completada con éxito.")
+                    data = response.json()
+                    raw_df = pd.DataFrame(data)
 
                     if raw_df.empty:
                         st.error("El backend devolvió un conjunto de datos vacío.")
