@@ -439,10 +439,13 @@ if not st.session_state.processed:
                         )
                     }
 
+                    # Usar la variable de secrets o la URL pública de Render directa
+                    API_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com/procesar")
+
                     response = requests.post(
-                        'http://192.168.1.142:8000/procesar',
+                        API_URL,
                         files=files,
-                        timeout=3600
+                        timeout=(60, 3600)  # (60s para conectar/despertar a Render, 3600s para procesar)
                     )
 
                     if response.status_code != 200:
