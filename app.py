@@ -446,16 +446,34 @@ if not st.session_state.processed:
                     # Incluye cabecera para ignorar pantalla de aviso de Ngrok
                     headers = {"ngrok-skip-browser-warning": "true"}
 
-                    # Aumentamos el timeout a 20 minutos (1200s) para procesamientos largos de YOLO
-                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=1200)
+                    # 1. Enviar el vídeo e iniciar la tarea asíncrona
+                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=60)
 
                     if response.status_code != 200:
                         st.error(f"Error en backend ({response.status_code}): {response.text}")
                         st.stop()
 
-                    st.write("2. Extracción de frames y calibración completada con éxito.")
-                    data = response.json()
-                    raw_df = pd.DataFrame(data)
+                    task_id = response.json().get("task_id")
+                    st.write("2. Vídeo recibido. Procesando YOLOv8 e histogramas en backend local...")
+
+                    # 2. Bucle de consulta (polling) para evitar el timeout de Ngrok
+                    status_url = f"{BASE_URL}/estado/{task_id}"
+                    finished = False
+
+                    with st.spinner("Procesando fotogramas... Esto puede tardar unos minutos."):
+                        while not finished:
+                            time.sleep(4)  # Consulta cada 4 segundos
+                            
+                            res_status = requests.get(status_url, headers=headers).json()
+                            
+                            if res_status.get("status") == "completed":
+                                raw_df = pd.DataFrame(res_status["data"])
+                                finished = True
+                            elif res_status.get("status") == "error":
+                                st.error(f"Error durante el procesamiento: {res_status.get('message')}")
+                                st.stop()
+
+                    st.write("3. Extracción de frames y calibración completada con éxito.")
 
                     if raw_df.empty:
                         st.error("El backend devolvió un conjunto de datos vacío.")
