@@ -435,21 +435,24 @@ if not st.session_state.processed:
                         'video': (
                             uploaded_file.name,
                             uploaded_file.getvalue(),
-                            'video/mp4'
+                            uploaded_file.type or 'video/mp4'
                         )
                     }
 
-                    # Usar la variable de secrets o la URL pública de Render directa
                     API_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com/procesar")
 
-                    response = requests.post(
-                        API_URL,
-                        files=files,
-                        timeout=(60, 3600)  # (60s para conectar/despertar a Render, 3600s para procesar)
-                    )
-
-                    if response.status_code != 200:
-                        st.error(f"Error backend: {response.text}")
+                    try:
+                        response = requests.post(
+                            API_URL,
+                            files=files,
+                            timeout=(60, 3600)
+                        )
+                        
+                        if response.status_code != 200:
+                            st.error(f"Error Backend ({response.status_code}): {response.text}")
+                            st.stop()
+                    except Exception as req_err:
+                        st.error(f"Error de conexión con la API: {type(req_err).__name__} - {str(req_err)}")
                         st.stop()
 
                     raw_df = pd.DataFrame(response.json())
