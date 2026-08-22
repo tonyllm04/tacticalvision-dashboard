@@ -451,8 +451,6 @@ if not st.session_state.processed:
 
                     raw_df = pd.DataFrame(response.json())
 
-                    st.write('DEBUG filas recibidas:', len(raw_df))
-
                     if raw_df.empty:
                         st.error("El backend devolvió un DataFrame vacío.")
                         st.stop()
@@ -471,72 +469,39 @@ if not st.session_state.processed:
                         'pos_y': 'y'
                     })
 
-                    # =====================================================
-                    # AÑADIR BALÓN AL DATAFRAME PRINCIPAL
-                    # =====================================================
+                    raw_df['class'] = 'player'
 
-                    # =========================
-                    # CONVERSIÓN PÍXELES → METROS
-                    # =========================
+                    # 1. TRATAMIENTO DEL BALÓN
+                    if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
+                        ball_rows = raw_df[
+                            (raw_df['balon_x'].notna()) &
+                            (raw_df['balon_y'].notna()) &
+                            (raw_df['balon_x'] != -1) &
+                            (raw_df['balon_y'] != -1)
+                        ][['frame', 'balon_x', 'balon_y']].drop_duplicates()
+
+                        if not ball_rows.empty:
+                            ball_rows = ball_rows.rename(columns={
+                                'balon_x': 'x',
+                                'balon_y': 'y'
+                            })
+
+                            ball_rows['id'] = 9999
+                            ball_rows['team'] = 'ball'
+                            ball_rows['class'] = 'ball'
+                            ball_rows['bbox'] = 'ball'
+                            ball_rows['balon_x'] = np.nan
+                            ball_rows['balon_y'] = np.nan
+
+                            raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
+
+                    # 2. CONVERSIÓN PÍXELES -> METROS (Solo si los datos vienen en píxeles de imagen)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
-                    # Resolución aproximada del vídeo
-                    VIDEO_W = 1920
-                    VIDEO_H = 1080
-
-                    raw_df['class'] = 'player'
-
-                    ball_rows = raw_df[
-                        (raw_df['balon_x'].notna()) &
-                        (raw_df['balon_y'].notna()) &
-                        (raw_df['balon_x'] != -1) &
-                        (raw_df['balon_y'] != -1)
-                    ][['frame', 'balon_x', 'balon_y']].drop_duplicates()
-
-                    st.write('DEBUG filas balón antes de añadir:', len(ball_rows))
-
-                    if not ball_rows.empty:
-
-                        ball_rows = ball_rows.rename(columns={
-                            'balon_x': 'x',
-                            'balon_y': 'y'
-                        })
-
-                        # NO convertir aquí: ya vienen convertidos
-                        # ball_rows['x'] = ball_rows['x'] * (FIELD_LENGTH / VIDEO_W)
-                        # ball_rows['y'] = ball_rows['y'] * (FIELD_WIDTH / VIDEO_H)
-
-                        ball_rows['id'] = 9999
-                        ball_rows['team'] = 'ball'
-                        ball_rows['class'] = 'ball'
-                        ball_rows['bbox'] = 'ball'
-
-                        ball_rows['balon_x'] = np.nan
-                        ball_rows['balon_y'] = np.nan
-
-                        raw_df = pd.concat([
-                            raw_df,
-                            ball_rows[raw_df.columns]
-                        ], ignore_index=True)
-
-                        st.write('DEBUG balón tras concat:')
-                        st.write(raw_df[raw_df['class']=='ball'][['frame','x','y']].head())
-
-                        st.success(f'Balón añadido: {len(ball_rows)} filas')
-                        st.write('Filas totales tras añadir balón:', len(raw_df))
-                        st.write('Clases tras añadir balón:')
-                        st.write(raw_df['class'].value_counts())
-
-                    else:
-                        st.error('No se encontraron filas válidas de balón')
-
-                    raw_df['x'] = raw_df['x'] * (FIELD_LENGTH / VIDEO_W)
-                    raw_df['y'] = raw_df['y'] * (FIELD_WIDTH / VIDEO_H)
-
-                    # Limitar al terreno de juego
-                    raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
-                    raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
+                    # Clip de seguridad para no desbordar los márgenes del terreno de juego
+                    raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0).clip(0, FIELD_LENGTH)
+                    raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0).clip(0, FIELD_WIDTH)
 
                     # Normalizar nombres de equipo del clasificador cromático
                     raw_df['team'] = raw_df['team'].replace({
@@ -545,50 +510,16 @@ if not st.session_state.processed:
                         'equipo_1': 'home',
                         'equipo_2': 'away'
                     })
-                    st.write(raw_df.head())
 
-                    # DEBUG POSESIÓN
-
-                    if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
-                        ball_debug = raw_df[
-                            (raw_df['balon_x'].notna()) &
-                            (raw_df['balon_y'].notna()) &
-                            (raw_df['balon_x'] != -1) &
-                            (raw_df['balon_y'] != -1)
-                        ]
-
-                        st.write('Frames balón detectados:', ball_debug['frame'].nunique())
-                        st.write(ball_debug[['frame', 'balon_x', 'balon_y']].head())
-                    else:
-                        st.write('NO EXISTEN COLUMNAS balon_x / balon_y')
-
-                    st.write('DEBUG antes métricas - class:')
-                    st.write(raw_df['class'].value_counts())
-
-                    st.write('DEBUG antes métricas - team:')
-                    st.write(raw_df['team'].value_counts())
-
-                    st.write('DEBUG balón detectado antes métricas:')
-                    st.write(raw_df[raw_df['class']=='ball'][['frame','x','y']].head())
-
-                    # 4) Métricas
+                    # 3. MÉTICAS DE RENDIMIENTO
                     metrics = compute_distances_and_metrics(raw_df)
-
-                    st.write("DEBUG 1: métricas calculadas")
 
                     # Guardar en sesión
                     st.session_state.df = raw_df
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
-                    st.write("DEBUG 2: session_state guardado")
-                    st.write(st.session_state.processed)
-
                     status.update(label="Análisis completado con éxito", state="complete")
-
-                    st.write("DEBUG 3: antes del dashboard")
-
-                    # Fuerza recarga
                     st.rerun()
 
                 except Exception as e:
