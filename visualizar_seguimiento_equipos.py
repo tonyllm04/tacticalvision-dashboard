@@ -46,7 +46,7 @@ def filtrar_fuera_del_campo(caja, ancho_vid, alto_vid):
     return False
 
 def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_salida_limpio):
-    print("🚀 Iniciando algoritmo de Consolidación por Descarte Cromático...")
+    print("Iniciando algoritmo de Consolidación por Descarte Cromático...")
     df = pd.read_csv(csv_datos)
     
     cap = cv2.VideoCapture(video_original)
@@ -73,7 +73,7 @@ def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_sali
     # --------------------------------------------------------------------------
     # PASO 1: Análisis Cromático Global (Solo si existen las imágenes)
     # --------------------------------------------------------------------------
-    print("📊 Fase 1: Extrayendo histogramas de color por ID...")
+    print("Fase 1: Extrayendo histogramas de color por ID...")
 
     for _, row in df.iterrows():
         idx = int(row['id'])
@@ -98,7 +98,7 @@ def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_sali
     # --------------------------------------------------------------------------
     # PASO 2: Reglas de Consolidación (Forzado de Casos Críticos Garantizado)
     # --------------------------------------------------------------------------
-    print("🔒 Fase 2: Consolidando roles...")
+    print("Fase 2: Consolidando roles...")
     
     # INYECCIÓN DIRECTA DE SEGURIDAD
     for arb in ARBITROS_BASE:
@@ -151,7 +151,7 @@ def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_sali
     # --------------------------------------------------------------------------
     # PASO 4: Renderizado Final
     # --------------------------------------------------------------------------
-    print("🎥 Fase 3: Renderizando vídeo final...")
+    print("Fase 3: Renderizando vídeo final...")
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(video_salida, fourcc, fps, (w_video, h_video))
     

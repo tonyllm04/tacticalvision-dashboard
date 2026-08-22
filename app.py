@@ -15,7 +15,6 @@ import io
 
 from extraccion_datos import generar_dataset_deteccion
 import extraccion_datos
-st.write("Usando extraccion_datos desde:", extraccion_datos.__file__)
 from visualizar_seguimiento_equipos import procesar_y_limpiar_dataset
 
 # ------------------------------------------------------------------------------
@@ -70,6 +69,39 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def calcular_distribucion_tercios(df, home_team, away_team):
+    # 1. Filtrar solo jugadores
+    df_jugadores = df[df['class'] == 'player'].copy()
+    
+    # 2. Usar 'x' (largo del campo: 0 a 105m) en lugar de 'y'
+    home_x = df_jugadores[df_jugadores['team'] == 'home']['x']
+    away_x = df_jugadores[df_jugadores['team'] == 'away']['x']
+    
+    # Porcentajes para el Local (Ataca de X=0 hacia X=105)
+    def get_pcts_home(series):
+        if len(series) == 0: return [0, 0, 0]
+        defensivo = (series < 35).mean() * 100
+        medio = ((series >= 35) & (series <= 70)).mean() * 100
+        ofensivo = (series > 70).mean() * 100
+        return [round(defensivo), round(medio), round(ofensivo)]
+
+    # Porcentajes para el Visitante (Defiende en X=70..105, Ataca hacia X=0..35)
+    def get_pcts_away(series):
+        if len(series) == 0: return [0, 0, 0]
+        defensivo = (series > 70).mean() * 100
+        medio = ((series >= 35) & (series <= 70)).mean() * 100
+        ofensivo = (series < 35).mean() * 100
+        return [round(defensivo), round(medio), round(ofensivo)]
+
+    home_pcts = get_pcts_home(home_x)
+    away_pcts = get_pcts_away(away_x)
+
+    return pd.DataFrame({
+        'Tercio del Campo': ['Tercio Defensivo (Propio)', 'Tercio Medio (Creación)', 'Tercio Ofensivo (Rival)'],
+        f'{home_team} (%)': home_pcts,
+        f'{away_team} (%)': away_pcts
+    })
+
 # ------------------------------------------------------------------------------
 #  MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
 # ------------------------------------------------------------------------------
@@ -77,49 +109,56 @@ st.markdown("""
 
 def compute_distances_and_metrics(df, min_id_duration_frames=3):
     """
-    Cálculo de distancias.
-    Coordenadas en píxeles de cámara.
+    Cálculo de distancias y posesión con sincronización correcta de métricas
+    y gestión de tramos iniciales/finales sin balón.
     """
-
     df = df.copy()
 
-    # Filtrado MUY permisivo para ByteTrack
+    # ============================================================
+    # 1. INTERPOLACIÓN DE BALÓN
+    # ============================================================
+    frames_totales = sorted(df['frame'].unique())
+    ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].drop_duplicates('frame')
+    
+    if not ball_df.empty:
+        full_ball = pd.DataFrame({'frame': frames_totales}).merge(ball_df, on='frame', how='left')
+        full_ball['x'] = full_ball['x'].interpolate(method='linear', limit=30)
+        full_ball['y'] = full_ball['y'].interpolate(method='linear', limit=30)
+        ball_dict = full_ball.dropna(subset=['x', 'y']).set_index('frame')[['x', 'y']].to_dict('index')
+    else:
+        ball_dict = {}
+
+    # ============================================================
+    # 2. FILTRADO DE JUGADORES Y DISTANCIAS
+    # ============================================================
     player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
-
     player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
 
-    # Si el filtrado deja muy pocos jugadores, usar TODOS
     if player_mask.sum() < 100:
         player_mask = (df['class'] == 'player')
 
-    # Solo jugadores válidos
-    players = df[player_mask].copy()
-    players = players.sort_values(['id', 'frame'])
+    players = df[player_mask].copy().sort_values(['id', 'frame'])
 
-    # Distancia entre frames consecutivos del mismo ID
     players['dx'] = players.groupby('id')['x'].diff()
     players['dy'] = players.groupby('id')['y'].diff()
-
-    players['distancia_px'] = np.sqrt(players['dx']**2 + players['dy']**2)
+    players['distancia_px'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
     UMBRAL_SALTO = 30.0
     UMBRAL_RUIDO = 0.8
 
     players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
     players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
-
     players['distancia_px'] = players['distancia_px'].fillna(0.0)
 
     K_PIXELS_A_METROS = 0.25
     FRAME_STRIDE = 3
-    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
 
+    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
     team_distances = players.groupby('team')['distancia_m'].sum().to_dict()
-
     player_distances = (
         players.groupby(['id', 'team'])['distancia_m']
         .sum()
@@ -127,91 +166,217 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         .rename(columns={'distancia_m': 'dist_meters'})
     )
 
-    # Centroides
+    # ============================================================
+    # 3. CENTROIDES
+    # ============================================================
     player_data = df[df['class'] == 'player']
-    centroids = (
-        player_data.groupby(['frame', 'team'])[['x', 'y']]
-        .mean()
-        .reset_index()
-    )
+    centroids = player_data.groupby(['frame', 'team'])[['x', 'y']].mean().reset_index()
 
     home_cent = centroids[centroids['team'] == 'home'].rename(columns={'x': 'x_home', 'y': 'y_home'})
     away_cent = centroids[centroids['team'] == 'away'].rename(columns={'x': 'x_away', 'y': 'y_away'})
 
     inter_df = pd.merge(home_cent, away_cent, on='frame')
-
     inter_df['inter_distance'] = np.sqrt(
-        (inter_df['x_home'] - inter_df['x_away'])**2 +
-        (inter_df['y_home'] - inter_df['y_away'])**2
+        (inter_df['x_home'] - inter_df['x_away']) ** 2 +
+        (inter_df['y_home'] - inter_df['y_away']) ** 2
     )
 
-    # =====================================================
-    # POSESIÓN ROBUSTA (usa team='ball')
-    # =====================================================
-    frames_list = sorted(df['frame'].unique())
-    possession_counts = {'home': 0, 'away': 0, 'disputed': 0}
+    # ============================================================
+    # 4. POSESIÓN FRAME A FRAME
+    # ============================================================
+    UMBRAL_CONTACTO = 15.0
+    UMBRAL_INERCIA = 25.0
+    MAX_FRAMES_INERCIA = 25
 
-    last_possessor = None
-    MAX_INERTIA = 4     #antes 15
-    UMBRAL_POSESION = 1.8   #metros
-    inertia_counter = 0
+    poseedor_actual_id = None
+    poseedor_actual_team = None
+    frames_inercia_restantes = 0
 
-    for f in frames_list:
-        frame_data = df[df['frame'] == f]
+    distancias_debug = []
+    ramas_debug = []
 
-        # El balón se identifica por team='ball'
-        ball = frame_data[frame_data['team'] == 'ball']
+    for f in frames_totales:
+        players_f = df[
+            (df['frame'] == f) & 
+            (df['team'].isin(['home', 'away'])) & 
+            (df['class'] == 'player')
+        ].copy()
 
-        # Los jugadores son home/away
-        players_f = frame_data[frame_data['team'].isin(['home', 'away'])]
+        if players_f.empty:
+            ramas_debug.append({
+                'frame': f, 'jugador_id': None, 'equipo_cercano': None, 'distancia': None,
+                'poseedor_actual': poseedor_actual_team, 'rama': 'DISPUTED', 'decision_final': 'disputed'
+            })
+            continue
 
-        current_possessor = 'disputed'
+        ball_pos = ball_dict.get(f)
 
-        if not ball.empty and not players_f.empty:
-
-            # Tomamos el primer balón del frame
-            bx, by = ball.iloc[0][['x', 'y']]
-
-            p_copy = players_f.copy()
-            p_copy['dist'] = np.sqrt(
-                (p_copy['x'] - bx)**2 +
-                (p_copy['y'] - by)**2
-            )
-
-            closest = p_copy.loc[p_copy['dist'].idxmin()]
-
-            # Umbral en metros
-            if closest['dist'] <= UMBRAL_POSESION:
-                current_possessor = closest['team']
-                last_possessor = current_possessor
-                inertia_counter = MAX_INERTIA
+        if ball_pos is None:
+            if poseedor_actual_team is not None and frames_inercia_restantes > 0:
+                rama = 'BALON_PERDIDO_INERCIA'
+                decision_final = poseedor_actual_team
+                frames_inercia_restantes -= 1
             else:
-                if inertia_counter > 0 and last_possessor is not None:
-                    current_possessor = last_possessor
-                    inertia_counter -= 1
+                rama = 'DISPUTED'
+                decision_final = 'disputed'
+                poseedor_actual_team = None
+                poseedor_actual_id = None
+                frames_inercia_restantes = 0
 
-        possession_counts[current_possessor] += 1
+            ramas_debug.append({
+                'frame': f, 'jugador_id': poseedor_actual_id, 'equipo_cercano': None, 'distancia': None,
+                'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final,
+                'umbral_contacto': UMBRAL_CONTACTO, 'umbral_inercia': UMBRAL_INERCIA
+            })
+            continue
 
-    total_valid = possession_counts['home'] + possession_counts['away']
+        bx, by = ball_pos['x'], ball_pos['y']
+        players_f['distancia'] = np.sqrt((players_f['x'] - bx) ** 2 + (players_f['y'] - by) ** 2)
+        closest = players_f.loc[players_f['distancia'].idxmin()]
 
-    if total_valid > 0:
-        poss_home = round(100 * possession_counts['home'] / total_valid)
-        poss_away = round(100 * possession_counts['away'] / total_valid)
+        jugador_id = closest['id']
+        equipo_cercano = closest['team']
+        distancia_minima = float(closest['distancia'])
+
+        distancias_debug.append({
+            'frame': f, 'id': jugador_id, 'team': equipo_cercano, 'distancia': distancia_minima
+        })
+
+        if distancia_minima <= UMBRAL_CONTACTO:
+            if poseedor_actual_team == equipo_cercano:
+                rama = 'MANTENIMIENTO'
+            elif poseedor_actual_team is not None:
+                rama = 'CAMBIO_EQUIPO'
+            else:
+                rama = 'ADQUISICION'
+
+            poseedor_actual_id = jugador_id
+            poseedor_actual_team = equipo_cercano
+            frames_inercia_restantes = MAX_FRAMES_INERCIA
+            decision_final = equipo_cercano
+
+        elif distancia_minima <= UMBRAL_INERCIA:
+            if poseedor_actual_team is not None and frames_inercia_restantes > 0:
+                rama = 'INERCIA'
+                decision_final = poseedor_actual_team
+                frames_inercia_restantes -= 1
+            else:
+                rama = 'ADQUISICION_INICIAL'
+                poseedor_actual_id = jugador_id
+                poseedor_actual_team = equipo_cercano
+                frames_inercia_restantes = MAX_FRAMES_INERCIA
+                decision_final = equipo_cercano
+
+        else:
+            if poseedor_actual_team is not None and frames_inercia_restantes > 0:
+                rama = 'INERCIA_DECAIMIENTO'
+                decision_final = poseedor_actual_team
+                frames_inercia_restantes -= 1
+            else:
+                rama = 'DISPUTED'
+                decision_final = 'disputed'
+                poseedor_actual_team = None
+                poseedor_actual_id = None
+                frames_inercia_restantes = 0
+
+        ramas_debug.append({
+            'frame': f, 'jugador_id': jugador_id, 'equipo_cercano': equipo_cercano, 'distancia': distancia_minima,
+            'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final,
+            'umbral_contacto': UMBRAL_CONTACTO, 'umbral_inercia': UMBRAL_INERCIA
+        })
+
+    # ============================================================
+    # 5. AJUSTES RETROACTIVOS Y FINALES (BACKFILL & FORWARDFILL)
+    # ============================================================
+    # A) Retro-inicialización (Frames iniciales sin balón)
+    primer_poseedor = next((item['decision_final'] for item in ramas_debug if item['decision_final'] in ['home', 'away']), None)
+    if primer_poseedor:
+        for item in ramas_debug:
+            if item['decision_final'] == 'disputed' and item['poseedor_actual'] is None:
+                item['rama'] = 'INICIALIZACION_RETROACTIVA'
+                item['decision_final'] = primer_poseedor
+            else:
+                break
+
+    # B) Propagación final (Frames finales donde el balón desaparece)
+    
+    ultimo_poseedor = None
+    for item in ramas_debug:
+        if item['decision_final'] in ['home', 'away']:
+            ultimo_poseedor = item['decision_final']
+        elif item['decision_final'] == 'disputed' and ultimo_poseedor:
+            item['rama'] = 'PROPAGACION_FINAL'
+            item['decision_final'] = ultimo_poseedor
+
+    # ============================================================
+    # REGLA DE TRANSICIÓN EN PASES/DESPEJES (SPLIT DE LAGUNAS)
+    # ============================================================
+    # Si hay un cambio de equipo entre dos detecciones reales,
+    # dividimos el tramo sin balón al 50% entre ambos equipos.
+    
+    indices_cambio = []
+    for i in range(1, len(ramas_debug)):
+        prev = ramas_debug[i-1]['decision_final']
+        curr = ramas_debug[i]['decision_final']
+        if prev in ['home', 'away'] and curr in ['home', 'away'] and prev != curr:
+            # Encontrado un cambio directo o con puente de inercia/disputa
+            indices_cambio.append(i)
+
+    # Para cada cambio de posesión, suavizamos el tramo anterior
+    for idx in indices_cambio:
+        equipo_nuevo = ramas_debug[idx]['decision_final']
+        # Cambiamos range(1, 15) por range(1, 25) para capturar vuelos/despejes más largos
+        for retro in range(1, 25):
+            idx_prev = idx - retro
+            if idx_prev >= 0 and ramas_debug[idx_prev]['rama'] in ['INERCIA', 'BALON_PERDIDO_INERCIA', 'INERCIA_DECAIMIENTO']:
+                ramas_debug[idx_prev]['decision_final'] = equipo_nuevo
+                ramas_debug[idx_prev]['rama'] = 'TRANSICION_VUELO'
+            else:
+                break
+
+    # ============================================================
+    # 6. CÁLCULO FINAL DE METRICAS Y PORCENTAJES (POST-PROCESADO)
+    # ============================================================
+    decision_series = pd.Series([item['decision_final'] for item in ramas_debug])
+    counts = decision_series.value_counts().to_dict()
+
+    home_count = counts.get('home', 0)
+    away_count = counts.get('away', 0)
+    disputed_count = counts.get('disputed', 0)
+
+    total_efectivo = home_count + away_count
+
+    if total_efectivo > 0:
+        poss_home = round(100 * home_count / total_efectivo)
+        poss_away = round(100 * away_count / total_efectivo)
     else:
         poss_home = 0
         poss_away = 0
 
-    st.write('DEBUG posesión conteo:', possession_counts)
-    st.write('DEBUG total frames válidos:', total_valid)
-    st.write('DEBUG posesión final:', poss_home, poss_away)
+    # ============================================================
+    # 7. DISTRIBUCIÓN TERRITORIAL (TERCIOS DEL CAMPO)
+    # ============================================================
+    # Obtenemos los nombres de los equipos desde session_state de forma segura
+    home_name = st.session_state.get('home_team', 'Local')
+    away_name = st.session_state.get('away_team', 'Visitante')
+    
+    zone_df = calcular_distribucion_tercios(df, home_name, away_name)
 
     return {
         'player_distances': player_distances,
         'team_distances': team_distances,
         'centroids': centroids,
         'inter_df': inter_df,
+        'zone_df': zone_df,
         'poss_home': poss_home,
-        'poss_away': poss_away
+        'poss_away': poss_away,
+        'possession_home_count': home_count,
+        'possession_away_count': away_count,
+        'possession_disputed_count': disputed_count,
+        'possession_total_valid': total_efectivo,
+        'decision_df': pd.DataFrame(ramas_debug),
+        'distancias_debug': pd.DataFrame(distancias_debug),
+        'ramas_df': pd.DataFrame(ramas_debug)
     }
 
 
@@ -450,47 +615,197 @@ else:
     df = st.session_state.df
     metrics = st.session_state.metrics
 
-    st.write("### DEBUG CÁLCULO POSESIÓN")
+    decision_debug = st.session_state.metrics.get(
+    'decision_debug',
+    []
+    )
 
-    raw_df = st.session_state.df
+    debug_distancias = metrics.get('distancias_debug', pd.DataFrame())
+    decision_df = metrics.get('decision_df', pd.DataFrame())
+    ramas_df = metrics.get('ramas_df', pd.DataFrame())
 
-    ball_test = raw_df[raw_df["class"] == "ball"].copy()
-    players_test = raw_df[raw_df["class"] == "player"].copy()
+    possession_counts = {
+        'home': metrics.get('possession_home_count', 0),
+        'away': metrics.get('possession_away_count', 0),
+        'disputed': metrics.get('possession_disputed_count', 0)
+    }
 
-    st.write("Filas balón:", len(ball_test))
-    st.write("Filas jugadores:", len(players_test))
+    # =====================================================
+    # DEBUG POSESIÓN
+    # =====================================================
 
-    st.write("Equipos:")
-    st.write(players_test["team"].value_counts())
+    decision_df = metrics.get(
+        'decision_df',
+        pd.DataFrame()
+    )
 
-    if not ball_test.empty:
-        st.write("Primeras posiciones balón:")
-        st.write(ball_test[["frame", "x", "y"]].head(10))
+    distancias_debug = metrics.get(
+        'distancias_debug',
+        pd.DataFrame()
+    )
 
-    if not ball_test.empty and not players_test.empty:
+    ramas_df = metrics.get(
+        'ramas_df',
+        pd.DataFrame()
+    )
 
-        frames_comunes = (
-            set(ball_test["frame"]) &
-            set(players_test["frame"])
+    possession_counts = {
+        'home': metrics.get('possession_home_count', 0),
+        'away': metrics.get('possession_away_count', 0),
+        'disputed': metrics.get('possession_disputed_count', 0)
+    }
+
+
+    # =====================================================
+    # DEBUG RAMAS POSESIÓN
+    # =====================================================
+
+    st.write("### DEBUG RAMAS POSESIÓN")
+
+    if not ramas_df.empty:
+
+        st.write(
+            ramas_df['rama'].value_counts()
         )
 
-        st.write("Frames con balón:", len(ball_test["frame"].unique()))
-        st.write("Frames con jugadores:", len(players_test["frame"].unique()))
-        st.write("Frames comunes:", len(frames_comunes))
+        st.write("Decisiones finales:")
 
-        if frames_comunes:
+        st.write(
+            ramas_df['decision_final'].value_counts()
+        )
 
-            frame_debug = sorted(frames_comunes)[0]
+        st.write("Últimos frames antes de DISPUTED:")
 
-            st.write(
-                f"Frame usado para comprobar posesión: {frame_debug}"
+        disputed_rows = ramas_df[ramas_df['decision_final'] == 'disputed']
+
+        if not disputed_rows.empty:
+            columnas_validas = ['frame', 'jugador_id', 'equipo_cercano', 'distancia', 'poseedor_actual', 'rama', 'decision_final']
+            st.dataframe(disputed_rows[columnas_validas])
+        else:
+            st.info("No hay frames registrados como DISPUTED.")
+
+    else:
+
+        st.write("NO HAY DATOS DE RAMAS")
+
+
+    # =====================================================
+    # DEBUG DECISIÓN POSESIÓN
+    # =====================================================
+
+    st.markdown("### DEBUG DECISIÓN POSESIÓN")
+
+    if not decision_df.empty:
+
+        st.write(
+            f"Número de decisiones: `{len(decision_df)}`"
+        )
+
+        st.dataframe(
+            decision_df.head(50)
+        )
+
+        st.write("Reparto decisiones:")
+
+        st.write(
+            decision_df['decision_final'].value_counts()
+        )
+
+    else:
+
+        st.write("NO HAY DATOS DE DECISIÓN")
+
+
+    # =====================================================
+    # DEBUG DISTRIBUCIÓN DISTANCIAS
+    # =====================================================
+
+    st.write("### DEBUG DISTRIBUCIÓN DISTANCIAS")
+
+    if not distancias_debug.empty:
+
+        st.write(
+            f"Número de comprobaciones: `{len(distancias_debug)}`"
+        )
+
+        # Añadir decisión final a cada registro de distancia
+        if 'decision_final' not in distancias_debug.columns:
+
+            distancias_debug = distancias_debug.merge(
+                decision_df[
+                    ['frame', 'decision_final']
+                ],
+                on='frame',
+                how='left'
             )
 
-            st.write(
-                raw_df[raw_df["frame"] == frame_debug][
-                    ["frame", "id", "team", "class", "x", "y"]
-                ]
+        st.write(
+            "Columnas:",
+            distancias_debug.columns.tolist()
+        )
+
+        st.write(
+            "Distancias de los frames disputed:"
+        )
+
+        distancias_disputed = distancias_debug[
+            distancias_debug['decision_final'] == 'disputed'
+        ]
+
+        if not distancias_disputed.empty:
+
+            st.dataframe(
+                distancias_disputed[
+                    ['frame', 'id', 'team', 'distancia']
+                ].head(50)
             )
+
+        else:
+
+            st.write(
+                "No hay frames disputed con distancia registrada."
+            )
+
+    else:
+
+        st.write(
+            "NO HAY DATOS DE DEBUG DE DISTANCIAS"
+        )
+
+
+    # =====================================================
+    # DEBUG REPARTO POSESIÓN
+    # =====================================================
+
+    st.write("### DEBUG REPARTO POSESIÓN")
+
+    home_count = possession_counts['home']
+    away_count = possession_counts['away']
+    disputed_count = possession_counts['disputed']
+
+    total_valid = home_count + away_count
+
+    if total_valid > 0:
+
+        poss_home = round(
+            100 * home_count / total_valid
+        )
+
+        poss_away = round(
+            100 * away_count / total_valid
+        )
+
+    else:
+
+        poss_home = 0
+        poss_away = 0
+
+    st.write(f"Home: `{home_count}`")
+    st.write(f"Away: `{away_count}`")
+    st.write(f"Disputed: `{disputed_count}`")
+    st.write(f"Total válido: `{total_valid}`")
+    st.write(f"Porcentaje home: `{poss_home}`")
+    st.write(f"Porcentaje away: `{poss_away}`")
 
     # =====================================================
     # DEBUG DISTANCIAS POSESIÓN
@@ -507,71 +822,6 @@ else:
         (df['frame'] == frame_debug) &
         (df['class'] == 'ball')
     ].copy()
-
-    st.write("### DEBUG DISTANCIAS AL BALÓN")
-
-    st.write("Jugadores en frame:", len(jugadores_frame))
-    st.write("Balón en frame:", len(balon_frame))
-
-    if not jugadores_frame.empty and not balon_frame.empty:
-
-        bx = float(balon_frame.iloc[0]['x'])
-        by = float(balon_frame.iloc[0]['y'])
-
-        st.write("Balón:", bx, by)
-
-        jugadores_frame['distancia'] = np.sqrt(
-            (jugadores_frame['x'] - bx) ** 2 +
-            (jugadores_frame['y'] - by) ** 2
-        )
-
-        st.write(
-            jugadores_frame[
-                ['id', 'team', 'x', 'y', 'distancia']
-            ].sort_values('distancia').head(10)
-        )
-
-        st.write(
-            "Distancia mínima:",
-            jugadores_frame['distancia'].min()
-        )
-
-    else:
-        st.write("NO SE PUEDE CALCULAR: falta balón o jugadores")
-
-    if 'debug_raw_ball' in st.session_state:
-        st.subheader('DEBUG RAW STREAMLIT')
-        st.write(st.session_state.debug_raw_ball)
-
-    # DEBUG POSESIÓN FINAL
-    if not jugadores_frame.empty and not balon_frame.empty:
-
-        jugador_cercano = jugadores_frame.loc[
-            jugadores_frame['distancia'].idxmin()
-        ]
-
-        st.write("### DEBUG GANADOR POSESIÓN")
-
-        st.write("Jugador más cercano:")
-        st.write(jugador_cercano)
-
-        st.write("Equipo ganador:", jugador_cercano['team'])
-        st.write("Distancia:", jugador_cercano['distancia'])
-
-    st.write('### DEBUG BALÓN FINAL')
-
-    if 'class' in df.columns:
-        ball_final = df[df['class'] == 'ball']
-
-        st.write('Filas balón finales:', len(ball_final))
-
-        if not ball_final.empty:
-            st.write(ball_final[['frame', 'x', 'y']].head())
-        else:
-            st.error('NO HAY FILAS BALL EN EL DF FINAL')
-    else:
-        st.error('NO EXISTE COLUMNA class EN EL DF FINAL')
-
 
     # ================= DEBUG DASHBOARD =================
     st.markdown('---')
@@ -746,7 +996,6 @@ else:
                 <ul>
                     <li><b>Distancia Inter-Centroides actual:</b> <code>{curr_inter_dist:.2f} m</code></li>
                     <li><b>Efecto Táctico:</b> Una distancia inter-equipo reducida (&lt; 20m) indica una fase de alta presión o bloqueo denso. Una distancia amplia (&gt; 30m) evidencia estiramiento entre líneas o transición limpia.</li>
-                    <li><b>Polígono Punteado (Convex Hull):</b> Muestra la superficie ocupada por el bloque. Si la superficie supera los 1200 m², el equipo pierde compacidad horizontal y vertical.</li>
                 </ul>
             </div>
             """, unsafe_allow_html=True)
@@ -764,7 +1013,7 @@ else:
         
         heatmap_choice = st.radio(
             "Seleccionar elemento para visualizar densidad:", 
-            (home_team, away_team, "Balón (Excluyendo Balón Parado)")
+            (home_team, away_team, "Balón")
         )
         
         col_heat, col_heat_info = st.columns([2, 1])
@@ -835,9 +1084,7 @@ else:
                     <h4>Análisis Posicional: {heatmap_choice}</h4>
                     <p>Muestra los núcleos de presencia constante de los jugadores a lo largo del clip.</p>
                     <ul>
-                        <li><b>Saturación en Ocupación:</b> Las zonas más oscuras señalan dónde se acumulan los apoyos posicionales.</li>
-                        <li><b>Uso de Carriles:</b> Comprueba si la densidad alcanza la línea de banda (amplitud) o si el juego se embotella en el carril central.</li>
-                        <li><b>Ocupación de Medios Espacios:</b> Detecta si tus mediocentros/interiores logran recibir en la zona intermedia entre la defensa y el medio rival.</li>
+                        <li><b>Saturación en Ocupación:</b> Las zonas más brillantes señalan las zonas donde más presencia tienen los equipos.</li>
                     </ul>
                 </div>
                 """, unsafe_allow_html=True)
@@ -845,9 +1092,8 @@ else:
                 st.markdown("""
                 <div class="tactical-card">
                     <h4>Mapa de Dinámica del Balón</h4>
-                    <p>Muestra la trayectoria y zonas de circulación real del esférico.</p>
+                    <p>Muestra la trayectoria y zonas de circulación del esférico.</p>
                     <ul>
-                        <li><b>Filtro de Inercia:</b> Se han eliminado los saques de banda y paradas de juego para analizar solo la circulación en juego fluido.</li>
                         <li><b>Zonas de Impacto:</b> Identifica en qué sector del campo se juega el partido con mayor frecuencia.</li>
                     </ul>
                 </div>
@@ -858,56 +1104,51 @@ else:
     # --------------------------------------------------------------------------
     with tab_stats:
         st.subheader("Rendimiento Físico e Inter-Evolución Táctica")
+
+        st.markdown("#### Evolución de la Distancia Inter-Centroides (m)")
+
+        inter_df = metrics['inter_df']
         
-        c1, c2 = st.columns([1.2, 1])
-        
-        with c1:
-            st.markdown("#### Evolución de la Distancia Inter-Centroides (m)")
-            
-            inter_df = metrics['inter_df']
-            fig_lines, ax_lines = plt.subplots(figsize=(8, 4))
-            fig_lines.patch.set_facecolor('#1e293b')
-            ax_lines.set_facecolor('#0f172a')
-            
-            ax_lines.plot(inter_df['frame'], inter_df['inter_distance'], color='#10b981', linewidth=2.5, label="Distancia entre Centroides")
-            ax_lines.axhline(inter_df['inter_distance'].mean(), color='#fbbf24', linestyle='--', label=f"Promedio: {inter_df['inter_distance'].mean():.1f}m")
-            
-            ax_lines.set_xlabel("Fotograma / Frame", color='#94a3b8')
-            ax_lines.set_ylabel("Metros (m)", color='#94a3b8')
-            ax_lines.tick_params(colors='#94a3b8')
-            ax_lines.grid(True, linestyle=':', alpha=0.3, color='#475569')
-            ax_lines.legend(facecolor='#1e293b', edgecolor='none', labelcolor='white')
-            
-            st.pyplot(fig_lines)
-            
-        with c2:
-            st.markdown("#### Distancia Recorrida por Jugador (Metros)")
-            p_dist = metrics['player_distances'].copy()
-            p_dist['Dorsal / ID'] = p_dist['id'].apply(lambda x: f"Jugador #{x}")
-            p_dist['Equipo'] = p_dist['team'].apply(lambda t: home_team if t == 'home' else away_team)
-            p_dist['Distancia (m)'] = p_dist['dist_meters'].round(1)
-            
-            display_table = p_dist[['Dorsal / ID', 'Equipo', 'Distancia (m)']].sort_values(by='Distancia (m)', ascending=False)
-            st.dataframe(display_table, use_container_width=True, height=280)
+        # Se amplía figsize a (12, 4) para ocupar todo el ancho horizontal
+        fig_lines, ax_lines = plt.subplots(figsize=(12, 4))
+        fig_lines.patch.set_facecolor('#1e293b')
+        ax_lines.set_facecolor('#0f172a')
+
+        ax_lines.plot(inter_df['frame'], inter_df['inter_distance'], color='#10b981', linewidth=2.5, label="Distancia entre Centroides")
+        ax_lines.axhline(inter_df['inter_distance'].mean(), color='#fbbf24', linestyle='--', label=f"Promedio: {inter_df['inter_distance'].mean():.1f}m")
+
+        ax_lines.set_xlabel("Fotograma / Frame", color='#94a3b8')
+        ax_lines.set_ylabel("Metros (m)", color='#94a3b8')
+        ax_lines.tick_params(colors='#94a3b8')
+        ax_lines.grid(True, linestyle=':', alpha=0.3, color='#475569')
+        ax_lines.legend(facecolor='#1e293b', edgecolor='none', labelcolor='white')
+
+        # use_container_width=True estira la figura al 100% del contenedor de Streamlit
+        st.pyplot(fig_lines, use_container_width=True)
 
         st.markdown("---")
         
         st.subheader("Distribución Territorial del Control de Juego")
-        zone_col1, zone_col2 = st.columns(2)
+        zone_col1, zone_col2 = st.columns([1, 1.2])
         
         with zone_col1:
-            zone_df = pd.DataFrame({
-                'Tercio del Campo': ['Tercio Defensivo (Propio)', 'Tercio Medio (Creación)', 'Tercio Ofensivo (Rival)'],
-                f'{home_team} (%)': [38, 48, 14],
-                f'{away_team} (%)': [22, 52, 26]
-            })
-            st.dataframe(zone_df, use_container_width=True)
+            # Ahora usa el dataframe calculado dinámicamente desde métricas
+            zone_df = metrics.get('zone_df', pd.DataFrame()) 
+            st.dataframe(zone_df, use_container_width=True, hide_index=True)
             
         with zone_col2:
             st.info("""
-                **Nota sobre el cálculo de Distancias y Posesión:**  
-                * **Distancia métrica:** La calibración por Homografía convierte la traslación de píxeles a metros reales sobre un plano corregido de 105x68m. Se aplica un filtro que descarta desplazamientos menores a 1cm por frame (ruido) y mayores a 1.2m por frame (interrupciones/reidentificación).
-                * **Posesión con inercia:** Se asigna la posesión al equipo del jugador más cercano al balón (radio < 8.0m). Cuando el balón viaja por el aire o en un pase largo, el sistema mantiene la inercia del último poseedor durante un margen prudencial para reflejar la intención táctica real.
+            **Guía de Interpretación Táctica para el Entrenador:**
+
+            * **Distancia Inter-Centroides (Gráfica Superior):**
+                * **¿Qué es?** Mide la separación en metros entre el centro de gravedad del equipo local y el del visitante.
+                * **¿Cómo leerla?** 
+                    * **Picos altos (>20m):** Partidos abiertos, bloques estirados, transiciones rápidas o contraataques con mucha distancia entre líneas.
+                    * **Valles bajos (<10m):** Duelos de contacto directo, presión alta, bloques muy juntos o disputas concentradas en una misma zona.
+
+            * **Distribución Territorial por Tercios (Tabla):**
+                * **¿Qué es?** Mide qué porcentaje de presencia mantiene cada equipo en los tres tercios del campo a lo largo del clip.
+                * **¿Cómo leerla?** Permite identificar el plan de juego: un alto % en **Tercio Defensivo** indica bloque bajo/resistencia; un alto % en **Tercio Medio** señala control de posesión; y en **Tercio Ofensivo**, dominio territorial o presión tras pérdida en campo rival.
             """)
 
     # Botón de reinicio
