@@ -519,12 +519,28 @@ if not st.session_state.processed:
 
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 2. CONVERSIÓN PÍXELES -> METROS
+                    # 2. NORMALIZACIÓN PÍXELES -> METROS (105x68)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
-                    raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0).clip(0, FIELD_LENGTH)
-                    raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0).clip(0, FIELD_WIDTH)
+                    # Asegurar tipo numérico
+                    raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0)
+                    raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0)
+
+                    # Mapeo proyectivo/escalado simple si no viene de vista de pájaro homográfica
+                    max_x_px = raw_df['x'].max()
+                    max_y_px = raw_df['y'].max()
+
+                    # Si los valores exceden 105, significa que vienen en resolución de pantalla (píxeles)
+                    if max_x_px > FIELD_LENGTH:
+                        raw_df['x'] = (raw_df['x'] / (max_x_px if max_x_px > 0 else 1920.0)) * FIELD_LENGTH
+
+                    if max_y_px > FIELD_WIDTH:
+                        raw_df['y'] = (raw_df['y'] / (max_y_px if max_y_px > 0 else 1080.0)) * FIELD_WIDTH
+
+                    # Recortar estrictamente a los límites del campo
+                    raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
+                    raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
                     raw_df['team'] = raw_df['team'].replace({
                         'Equipo_1': 'home',
