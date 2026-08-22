@@ -34,9 +34,8 @@ def extraer_torso_proporcional(frame, box):
         
     return None
 
-def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
-    # CORREGIDO: Cargar YOLOv8m (Medium) para mejor detección de objetos pequeños
-    print(f"Cargando YOLOv8m para personas y balón...")
+def generar_dataset_deteccion(video_path, csv_output, max_frames=1800):
+    print(f"Cargando YOLOv8n para personas y balón...")
     model = YOLO("yolov8n.pt") 
 
     cap = cv2.VideoCapture(video_path)
@@ -46,7 +45,8 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     
     f = open(csv_output, mode='w', newline='')
     writer = csv.writer(f)
-    writer.writerow(['frame', 'id', 'coords_caja', 'camiseta_path', 'balon_x', 'balon_y'])
+    # Ya no guardamos camiseta_path para no tocar el disco
+    writer.writerow(['frame', 'id', 'coords_caja', 'balon_x', 'balon_y'])
 
     frame_count = 0
     FRAME_STRIDE = 3
@@ -54,8 +54,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
 
     ultimo_balon_x, ultimo_balon_y = -1, -1
     frames_balon_desaparecido = 0
-    
-    # CORREGIDO: Aumentar memoria a 15 frames (~0.5s de vídeo real) para no perder el rastro
     MAX_FRAMES_MEMORIA = 15
 
     try:
@@ -66,21 +64,18 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             if not ret: break
 
             frame_count += 1
-
             if frame_count % FRAME_STRIDE != 0:
                 continue
 
             processed_frames += 1
+            if processed_frames >= max_frames: break
 
-            if processed_frames >= max_frames:
-                break
-
-            # CORREGIDO: Se sube imgsz a 1280 para dar más resolución al balón
+            # Cambiado imgsz a 640 para no saturar RAM/CPU en Render
             results = model.track(
                 source=frame, 
                 persist=True, 
                 classes=[0, 32], 
-                imgsz=1280, 
+                imgsz=640, 
                 conf=0.03,
                 verbose=False
             )
@@ -93,7 +88,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             if boxes_objeto is not None and len(boxes_objeto) > 0:
                 for box_det in boxes_objeto:
                     cls_id = int(box_det.cls[0])
-
                     if cls_id == 32:  # Balón
                         bx1, by1, bx2, by2 = box_det.xyxy.int().cpu().tolist()[0]
                         bx = int((bx1 + bx2) / 2)
@@ -101,7 +95,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         balon_detectado_este_frame = True
                         break
             
-            # En lugar de mantener bx, by estáticos:
             if balon_detectado_este_frame:
                 if ultimo_balon_x != -1:
                     vx = bx - ultimo_balon_x
@@ -113,11 +106,9 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             else:
                 frames_balon_desaparecido += 1
                 if frames_balon_desaparecido <= MAX_FRAMES_MEMORIA and ultimo_balon_x != -1:
-                    # Proyectamos la posición según la trayectoria previa
                     bx = int(ultimo_balon_x + (vx * frames_balon_desaparecido))
                     by = int(ultimo_balon_y + (vy * frames_balon_desaparecido))
             
-            # Guardado en CSV
             if boxes_objeto.id is not None:
                 boxes_coords = boxes_objeto.xyxy.int().cpu().tolist()
                 ids = boxes_objeto.id.int().cpu().tolist()
@@ -126,33 +117,21 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                 for box, idx, cls_id in zip(boxes_coords, ids, clases):
                     if cls_id == 0:  # Jugadores
                         coords_str = f"({box[0]}, {box[1]}, {box[2]}, {box[3]})"
-                        recorte_camiseta = extraer_torso_proporcional(frame, box)
-                        nombre_archivo_camiseta = "None"
-
-                        if recorte_camiseta is not None and recorte_camiseta.size > 0:
-                            nombre_archivo_camiseta = f"{carpeta_camisetas}/f{frame_count}_id{idx}.jpg"
-                            cv2.imwrite(nombre_archivo_camiseta, recorte_camiseta)
-
+                        # Escribimos los datos directamente sin guardar imágenes en disco
                         writer.writerow([
                             frame_count,
                             idx,
                             coords_str,
-                            nombre_archivo_camiseta,
                             int(bx),
                             int(by)
                         ])
                 
-    except KeyboardInterrupt:
-        print("\nInterrupción manual.")
     finally:
         f.close()
         cap.release()
-
         import gc
         del model
         gc.collect()
-
-        print(f"\nDataset generado con éxito.")
-
+        
 if __name__ == "__main__":
     generar_dataset_deteccion('clipp1.mp4', 'posiciones_partido1_raw.csv', max_frames=3600)
