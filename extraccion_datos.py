@@ -4,6 +4,7 @@ import numpy as np
 import os
 import csv
 from ultralytics import YOLO
+os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
 
 carpeta_camisetas = "dataset_camisetas_limpias"
 if not os.path.exists(carpeta_camisetas):
