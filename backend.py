@@ -57,8 +57,10 @@ async def iniciar_procesamiento(background_tasks: BackgroundTasks, video: Upload
     job_id = str(uuid.uuid4())
     video_path = f"temp_video_{job_id}.mp4"
 
+    # Escribir en disco por bloques (chunking) para no congelar el evento asíncrono
     with open(video_path, "wb") as buffer:
-        buffer.write(await video.read())
+        while content := await video.read(1024 * 1024):  # Leer de 1 MB en 1 MB
+            buffer.write(content)
 
     jobs_status[job_id] = {
         "status": "queued",
@@ -66,10 +68,10 @@ async def iniciar_procesamiento(background_tasks: BackgroundTasks, video: Upload
         "error": None
     }
 
-    # Agregar la tarea pesada al background worker de FastAPI
+    # Encolar la tarea pesada
     background_tasks.add_task(tarea_procesamiento_segundo_plano, job_id, video_path)
 
-    # Responde de inmediato (0.2s) evitando el Bad Gateway
+    # Devolver respuesta inmediata
     return {"job_id": job_id, "status": "queued"}
 
 @app.get("/status/{job_id}")

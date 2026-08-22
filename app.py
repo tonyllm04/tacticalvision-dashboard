@@ -439,13 +439,14 @@ if not st.session_state.processed:
                         )
                     }
 
-                    BASE_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com")
-                    # Ajusta la URL según el endpoint del backend (asegúrate de retirar '/procesar' si viene en API_URL)
-                    INIT_URL = f"{BASE_URL.rstrip('/')}/procesar" if not BASE_URL.endswith('/procesar') else BASE_URL
+                    # Formato seguro de URL para Polling
+                    BASE_URL = st.secrets.get("API_URL", "https://tacticalvision-backend.onrender.com").replace("/procesar", "").rstrip("/")
+
+                    INIT_URL = f"{BASE_URL}/procesar"
 
                     # 1. Petición inicial para encolar la tarea
                     try:
-                        response = requests.post(INIT_URL, files=files, timeout=60)
+                        response = requests.post(INIT_URL, files=files, timeout=(30,300))
                         if response.status_code != 200:
                             st.error(f"Error Backend ({response.status_code}): {response.text}")
                             st.stop()
@@ -460,7 +461,7 @@ if not st.session_state.processed:
                     st.write(f"**ID de seguimiento:** `{job_id}`")
 
                     # 2. Bucle de Polling (Consulta recurrente cada 5 segundos)
-                    STATUS_URL = f"{BASE_URL.rstrip('/')}/status/{job_id}" if not BASE_URL.endswith('/procesar') else f"{BASE_URL.rsplit('/', 1)[0]}/status/{job_id}"
+                    STATUS_URL = f"{BASE_URL}/status/{job_id}"
                     
                     completado = False
                     raw_df = pd.DataFrame()
