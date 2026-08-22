@@ -6,12 +6,12 @@ import tempfile
 import os
 import pandas as pd
 
+# IMPORTANTE: Carga tus modelos o librerías pesadas AQUÍ ARRIBA, no dentro de la función
 from extraccion_datos import generar_dataset_deteccion
 from visualizar_seguimiento_equipos import procesar_y_limpiar_dataset
 
 app = FastAPI()
 
-# Permitir conexiones desde Streamlit Cloud o cualquier navegador
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +26,6 @@ async def procesar_video(video: UploadFile = File(...)):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, video.filename)
 
-            # Guardar el vídeo subido localmente
             with open(video_path, 'wb') as buffer:
                 shutil.copyfileobj(video.file, buffer)
 
@@ -34,7 +33,7 @@ async def procesar_video(video: UploadFile = File(...)):
             csv_filtrado = os.path.join(tmpdir, 'filtrado.csv')
             video_ia = os.path.join(tmpdir, 'ia.mp4')
 
-            # 1. Ejecutar YOLOv8 en tu PC (Máxima velocidad)
+            # 1. Ejecutar YOLOv8 (el modelo ya debe estar previamente cargado)
             generar_dataset_deteccion(
                 video_path,
                 csv_raw,
