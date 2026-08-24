@@ -129,7 +129,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     else:
         ball_dict = {}
 
-    # 2. FILTRADO DE JUGADORES Y DISTANCIAS
+    # 2. FILTRADO DE JUGADORES Y DISTANCIAS REALES
     player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
     player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
@@ -139,22 +139,20 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     players = df[player_mask].copy().sort_values(['id', 'frame'])
 
+    # Diferencia de posición en metros entre frames consecutivos
     players['dx'] = players.groupby('id')['x'].diff()
     players['dy'] = players.groupby('id')['y'].diff()
-    players['distancia_px'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
+    players['distancia_m_raw'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
-    UMBRAL_SALTO = 8.0
-    UMBRAL_RUIDO = 0.05
+    # UMBRALES MÉTRICOS EN METROS (Ajustados a metros reales por frame)
+    UMBRAL_SALTO = 1.2   # Ignora saltos > 1.2m por frame (errores de Tracking ID)
+    UMBRAL_RUIDO = 0.04  # Ignora temblores < 4 cm por frame (ruido de YOLOv8)
 
-    players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
-    players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
-    players['distancia_px'] = players['distancia_px'].fillna(0.0)
+    players['distancia_m'] = players['distancia_m_raw']
+    players.loc[players['distancia_m'] > UMBRAL_SALTO, 'distancia_m'] = 0.0
+    players.loc[players['distancia_m'] < UMBRAL_RUIDO, 'distancia_m'] = 0.0
+    players['distancia_m'] = players['distancia_m'].fillna(0.0)
 
-    K_PIXELS_A_METROS = 0.25
-    FRAME_STRIDE = 3
-
-    #players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
-    players['distancia_m'] = players['distancia_px']
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
@@ -179,10 +177,10 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away']) ** 2
     )
 
-    # 4. POSESIÓN FRAME A FRAME
-    UMBRAL_CONTACTO = 15.0
-    UMBRAL_INERCIA = 25.0
-    MAX_FRAMES_INERCIA = 25
+    # 4. POSESIÓN FRAME A FRAME (Umbrales corregidos a metros reales)
+    UMBRAL_CONTACTO = 2.5   # Un jugador tiene el balón si está a menos de 2.5 metros
+    UMBRAL_INERCIA = 5.0    # Zona de disputa/control cercano (hasta 5 metros)
+    MAX_FRAMES_INERCIA = 30 # Mantiene inercia de posesión durante 1 segundo aprox (a 30 fps)
 
     poseedor_actual_id = None
     poseedor_actual_team = None
