@@ -434,18 +434,22 @@ if not st.session_state.processed:
                             st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
                             st.stop()
                         
-                        # Extraer la lista de datos si viene dentro de una clave wrapper
-                        if 'data' in json_data:
-                            raw_df = pd.DataFrame(json_data['data'])
-                        elif 'result' in json_data:
-                            raw_df = pd.DataFrame(json_data['result'])
-                        elif 'detections' in json_data:
-                            raw_df = pd.DataFrame(json_data['detections'])
+                        # Extraer la lista de registros buscando claves comunes de wrappers
+                        records = None
+                        for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas']:
+                            if key in json_data and isinstance(json_data[key], list):
+                                records = json_data[key]
+                                break
+
+                        if records is not None:
+                            raw_df = pd.DataFrame(records)
                         else:
+                            # Si no se encuentra ninguna clave wrapper conocida, intentar convertirm
                             try:
                                 raw_df = pd.DataFrame(json_data)
                             except ValueError:
                                 raw_df = pd.DataFrame([json_data])
+                                
                     elif isinstance(json_data, list):
                         raw_df = pd.DataFrame(json_data)
                     else:
