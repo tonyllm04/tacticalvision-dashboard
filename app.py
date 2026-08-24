@@ -430,7 +430,7 @@ if not st.session_state.processed:
             st.session_state.away_team = away_team_input
             st.session_state.home_color = "#10b981"  # Verde Esmeralda
             st.session_state.away_color = "#f43f5e"  # Rosa Coral
-                
+            
             with st.status("Procesando vídeo en el servidor local de análisis...", expanded=True) as status:
                 try:
                     st.write("1. Transfiriendo vídeo al motor de análisis YOLOv8...")
@@ -472,10 +472,6 @@ if not st.session_state.processed:
                             
                             if res_status.get("status") == "completed":
                                 raw_df = pd.DataFrame(res_status["data"])
-                                
-                                # 🟢 UBICACIÓN 1: ORDENAR JUSTO AL RECIBIR LOS DATOS
-                                raw_df = raw_df.sort_values(by=['frame', 'id_jugador' if 'id_jugador' in raw_df.columns else 'id']).reset_index(drop=True)
-                                
                                 finished = True
                             elif res_status.get("status") == "error":
                                 st.error(f"Error durante el procesamiento: {res_status.get('message')}")
@@ -494,7 +490,7 @@ if not st.session_state.processed:
                     gc.collect()
 
                     # ==============================================================================
-                    # REESCALADO OBLIGATORIO Y NORMALIZACIÓN DINÁMICA A CAMPO 105x68
+                    # BLOQUE CORREGIDO DE PROCESAMIENTO Y ESCALADO A METROS (105x68)
                     # ==============================================================================
                     raw_df = raw_df.rename(columns={
                         'id_jugador': 'id',
@@ -527,31 +523,30 @@ if not st.session_state.processed:
                             ball_rows['balon_y'] = np.nan
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 🟢 UBICACIÓN 2: RE-ORDENAR TRAS CONCATENAR EL BALÓN
-                    raw_df = raw_df.sort_values(by=['frame', 'id']).reset_index(drop=True)
-
-                    # 2. CONVERSIÓN Y REESCALADO A METROS REALES (105x68)
+                    # 2. NORMALIZACIÓN Y ESCALADO A METROS REALES (105m x 68m)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
                     raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0)
                     raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0)
 
-                    # Obtener los límites del conjunto de datos recibido
-                    min_x, max_x = raw_df['x'].min(), raw_df['x'].max()
-                    min_y, max_y = raw_df['y'].min(), raw_df['y'].max()
+                    # Detectar el rango actual de coordenadas
+                    max_x = raw_df['x'].max()
+                    max_y = raw_df['y'].max()
 
-                    # Si el rango de X no cubre el campo entero (105m), ajustamos la escala min-max:
-                    rango_x = max_x - min_x
-                    rango_y = max_y - min_y
+                    # Si los datos vienen en píxeles de cámara (ej. 1920x1080 o 1280x720)
+                    if max_x > 105.0 or max_y > 68.0:
+                        ref_x = max_x if max_x > 105.0 else 1920.0
+                        ref_y = max_y if max_y > 68.0 else 1080.0
+                        raw_df['x'] = (raw_df['x'] / ref_x) * FIELD_LENGTH
+                        raw_df['y'] = (raw_df['y'] / ref_y) * FIELD_WIDTH
+                    else:
+                        # Si las coordenadas venían comprimidas en una escala pequeña (ej. 0..30)
+                        if max_x > 0 and max_x < 50.0:
+                            raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
+                        if max_y > 0 and max_y < 35.0:
+                            raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
 
-                    if rango_x > 0:
-                        raw_df['x'] = ((raw_df['x'] - min_x) / rango_x) * FIELD_LENGTH
-
-                    if rango_y > 0:
-                        raw_df['y'] = ((raw_df['y'] - min_y) / rango_y) * FIELD_WIDTH
-
-                    # Asegurar límites estrictos dentro del rectángulo de juego
                     raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
                     raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
@@ -570,7 +565,7 @@ if not st.session_state.processed:
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
-                    status.update(label="Análisis completado con éxito", state="complete")
+                    status.update(label="Análisis de 1800 frames completado con éxito", state="complete")
                     st.rerun()
 
                 except Exception as e:
@@ -581,33 +576,33 @@ if not st.session_state.processed:
                     st.code(error_text)
                     raise e
 
-        if 'pipeline_error' in st.session_state:
-            st.error("EXCEPCIÓN REAL DEL PIPELINE")
-            st.code(st.session_state.pipeline_error)
+    if 'pipeline_error' in st.session_state:
+        st.error("EXCEPCIÓN REAL DEL PIPELINE")
+        st.code(st.session_state.pipeline_error)
 
-    else:
-        # Cargar variables guardadas en sesión de forma segura
-        home_team = st.session_state.get('home_team', 'Equipo Local')
-        away_team = st.session_state.get('away_team', 'Equipo Visitante')
-        home_color = st.session_state.get('home_color', '#10b981')
-        away_color = st.session_state.get('away_color', '#f43f5e')
-        
-        df = st.session_state.get('df')
-        if df is None:
-            df = pd.DataFrame()
+else:
+    # Cargar variables guardadas en sesión
+    home_team = st.session_state.home_team
+    away_team = st.session_state.away_team
+    home_color = st.session_state.home_color
+    away_color = st.session_state.away_color
+    df = st.session_state.df
+    metrics = st.session_state.metrics
 
-        metrics = st.session_state.get('metrics') or {}
+    decision_debug = st.session_state.metrics.get(
+    'decision_debug',
+    []
+    )
 
-        decision_debug = metrics.get('decision_debug', [])
-        debug_distancias = metrics.get('distancias_debug', pd.DataFrame())
-        decision_df = metrics.get('decision_df', pd.DataFrame())
-        ramas_df = metrics.get('ramas_df', pd.DataFrame())
+    debug_distancias = metrics.get('distancias_debug', pd.DataFrame())
+    decision_df = metrics.get('decision_df', pd.DataFrame())
+    ramas_df = metrics.get('ramas_df', pd.DataFrame())
 
-        possession_counts = {
-            'home': metrics.get('possession_home_count', 0),
-            'away': metrics.get('possession_away_count', 0),
-            'disputed': metrics.get('possession_disputed_count', 0)
-        }
+    possession_counts = {
+        'home': metrics.get('possession_home_count', 0),
+        'away': metrics.get('possession_away_count', 0),
+        'disputed': metrics.get('possession_disputed_count', 0)
+    }
 
     # =====================================================
     # DEBUG POSESIÓN
