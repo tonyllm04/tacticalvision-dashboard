@@ -422,32 +422,48 @@ if not st.session_state.processed:
                     # --- GESTIÓN DE POLLING PARA API ASÍNCRONA (task_id) ---
                     if isinstance(json_data, dict) and 'task_id' in json_data:
                         task_id = json_data['task_id']
-                        st.write(f"2. Tarea registrada con ID: `{task_id}`. Esperando procesamiento...")
+                        st.write(f"2. Tarea registrada con ID: `{task_id}`. Procesando vídeo...")
                         
-                        STATUS_URL = f"{BASE_URL}/status/{task_id}" # Ajusta esta ruta si tu endpoint de status es /tarea/{task_id} o /resultado/{task_id}
+                        # IMPORTANT: Ajusta '/tarea/' por el endpoint exacto que tengas en tu FastAPI (ej: '/resultado/', '/task/')
+                        STATUS_URL = f"{BASE_URL}/tarea/{task_id}" 
                         
-                        max_intentos = 120  # 10 minutos máximo (120 * 5s)
+                        max_intentos = 120  # 10 minutos máximo
+                        completado = False
+                        
                         for _ in range(max_intentos):
                             time.sleep(5)
                             res_status = requests.get(STATUS_URL, headers=headers)
+                            
+                            # Si la tarea está lista y devuelve OK (200)
                             if res_status.status_code == 200:
                                 status_data = res_status.json()
                                 
-                                # Si devuelve directamente la lista de registros
                                 if isinstance(status_data, list):
                                     json_data = status_data
+                                    completado = True
                                     break
-                                # Si devuelve un dict de estado
                                 elif isinstance(status_data, dict):
-                                    estado = status_data.get('status', '').lower()
-                                    if estado in ['completed', 'finished', 'success', 'done']:
+                                    estado = str(status_data.get('status', '')).lower()
+                                    if estado in ['completed', 'finished', 'success', 'done', 'finalizado']:
                                         json_data = status_data.get('result', status_data.get('data', status_data))
+                                        completado = True
                                         break
                                     elif estado in ['failed', 'error']:
                                         st.error(f"Error en la tarea remota: {status_data.get('error')}")
                                         st.stop()
-                        else:
-                            st.error("Tiempo de espera agotado para el procesamiento del vídeo.")
+                            # Si la ruta no se encuentra (404), prueba con endpoints alternativos habituales
+                            elif res_status.status_code == 404:
+                                # Probar fallback automático si '/tarea/' falla
+                                fallback_url = f"{BASE_URL}/resultado/{task_id}"
+                                res_fallback = requests.get(fallback_url, headers=headers)
+                                if res_fallback.status_code == 200:
+                                    STATUS_URL = fallback_url
+                                    json_data = res_fallback.json()
+                                    completado = True
+                                    break
+
+                        if not completado:
+                            st.error("No se pudo obtener el resultado del servidor. Verifica la ruta del endpoint status/resultado en tu FastAPI.")
                             st.stop()
 
                     # 1. Validación e ingesta del JSON
