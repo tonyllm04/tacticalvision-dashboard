@@ -586,18 +586,32 @@ if not st.session_state.processed:
             st.code(st.session_state.pipeline_error)
 
     else:
-        # Cargar variables guardadas en sesión de forma segura sin detener la app (evita pantalla en blanco)
+        # Cargar variables guardadas en sesión de forma segura
         home_team = st.session_state.get('home_team', 'Equipo Local')
         away_team = st.session_state.get('away_team', 'Equipo Visitante')
         home_color = st.session_state.get('home_color', '#10b981')
         away_color = st.session_state.get('away_color', '#f43f5e')
-        df = st.session_state.get('df', pd.DataFrame())
-        metrics = st.session_state.get('metrics', {})
+        
+        # Garantizar DataFrames vacíos si vienen como None
+        df = st.session_state.get('df')
+        if df is None:
+            df = pd.DataFrame()
+
+        metrics = st.session_state.get('metrics') or {}
 
         decision_debug = metrics.get('decision_debug', [])
-        debug_distancias = metrics.get('distancias_debug', pd.DataFrame())
-        decision_df = metrics.get('decision_df', pd.DataFrame())
-        ramas_df = metrics.get('ramas_df', pd.DataFrame())
+        
+        debug_distancias = metrics.get('distancias_debug')
+        if debug_distancias is None:
+            debug_distancias = pd.DataFrame()
+            
+        decision_df = metrics.get('decision_df')
+        if decision_df is None:
+            decision_df = pd.DataFrame()
+            
+        ramas_df = metrics.get('ramas_df')
+        if ramas_df is None:
+            ramas_df = pd.DataFrame()
 
         possession_counts = {
             'home': metrics.get('possession_home_count', 0),
