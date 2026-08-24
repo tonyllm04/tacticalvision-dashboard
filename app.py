@@ -524,26 +524,25 @@ if not st.session_state.processed:
 
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 4. ESCALADO MÉTRICO INTELIGENTE (0..105m x 0..68m)
+                    # 4. ESCALADO MÉTRICO INTELIGENTE Y NORMALIZACIÓN AL CAMPO (105m x 68m)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
                     raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0)
                     raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0)
 
-                    max_x = raw_df['x'].max()
-                    max_y = raw_df['y'].max()
+                    # Filtrar posibles valores atípicos (-1 o errores de detección) para no distorsionar el escalado
+                    valid_coords = raw_df[(raw_df['x'] > 0) & (raw_df['y'] > 0)]
 
-                    if max_x <= 1.0 and max_y <= 1.0 and max_x > 0:
-                        raw_df['x'] = raw_df['x'] * FIELD_LENGTH
-                        raw_df['y'] = raw_df['y'] * FIELD_WIDTH
-                    elif max_x > FIELD_LENGTH or max_y > FIELD_WIDTH:
-                        raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
-                        raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
-                    elif max_x < FIELD_LENGTH and max_x > 1.0:
-                        raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
-                        if max_y > 0:
-                            raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
+                    if not valid_coords.empty:
+                        min_x, max_x = valid_coords['x'].min(), valid_coords['x'].max()
+                        min_y, max_y = valid_coords['y'].min(), valid_coords['y'].max()
+
+                        # Re-escalado dinámico (Min-Max) para ocupar la totalidad del campo 0..105m y 0..68m
+                        if (max_x - min_x) > 0:
+                            raw_df['x'] = ((raw_df['x'] - min_x) / (max_x - min_x)) * FIELD_LENGTH
+                        if (max_y - min_y) > 0:
+                            raw_df['y'] = ((raw_df['y'] - min_y) / (max_y - min_y)) * FIELD_WIDTH
 
                     raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
                     raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
