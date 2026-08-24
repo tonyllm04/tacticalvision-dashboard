@@ -586,12 +586,7 @@ if not st.session_state.processed:
             st.code(st.session_state.pipeline_error)
 
     else:
-        # 🟢 CONTROL DE ESTADO: Verificar si los datos realmente existen en sesión
-        if not st.session_state.get('processed', False):
-            st.info("👋 Selecciona un archivo de vídeo y pulsa en iniciar el análisis para comenzar.")
-            st.stop()
-
-        # Cargar variables guardadas en sesión de forma segura
+        # Cargar variables guardadas en sesión de forma segura sin detener la app (evita pantalla en blanco)
         home_team = st.session_state.get('home_team', 'Equipo Local')
         away_team = st.session_state.get('away_team', 'Equipo Visitante')
         home_color = st.session_state.get('home_color', '#10b981')
