@@ -411,13 +411,32 @@ if not st.session_state.processed:
                     INIT_URL = f"{BASE_URL}/procesar"
                     headers = {"ngrok-skip-browser-warning": "true"}
 
-                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=60)
+                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=3600)
 
                     if response.status_code != 200:
-                        st.error(f"Error backend: {response.text}")
+                        st.error(f"Error backend ({response.status_code}): {response.text}")
                         st.stop()
 
-                    raw_df = pd.DataFrame(response.json())
+                    json_data = response.json()
+
+                    # --- CONTROL DE EXCEPCIÓN / VALIDACIÓN DEL JSON RECIBIDO ---
+                    if isinstance(json_data, dict):
+                        # Si el servidor devuelve un dict con la clave 'error' o 'detail'
+                        if 'error' in json_data or 'detail' in json_data:
+                            st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
+                            st.stop()
+                        
+                        # Si el dict contiene columnas/listas (ej. formato orient='dict' o 'list')
+                        try:
+                            raw_df = pd.DataFrame(json_data)
+                        except ValueError:
+                            # Si es un dict de escalares, lo envolvemos en una lista de 1 elemento
+                            raw_df = pd.DataFrame([json_data])
+                    elif isinstance(json_data, list):
+                        raw_df = pd.DataFrame(json_data)
+                    else:
+                        st.error("Formato JSON no reconocido devuelto por el servidor.")
+                        st.stop()
 
                     if raw_df.empty:
                         st.error("El backend devolvió un DataFrame vacío.")
