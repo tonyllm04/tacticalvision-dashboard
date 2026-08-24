@@ -419,18 +419,14 @@ if not st.session_state.processed:
 
                     json_data = response.json()
 
-                    # --- CONTROL DE EXCEPCIÓN / VALIDACIÓN DEL JSON RECIBIDO ---
+                    # 1. Validación e ingesta del JSON
                     if isinstance(json_data, dict):
-                        # Si el servidor devuelve un dict con la clave 'error' o 'detail'
                         if 'error' in json_data or 'detail' in json_data:
                             st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
                             st.stop()
-                        
-                        # Si el dict contiene columnas/listas (ej. formato orient='dict' o 'list')
                         try:
                             raw_df = pd.DataFrame(json_data)
                         except ValueError:
-                            # Si es un dict de escalares, lo envolvemos en una lista de 1 elemento
                             raw_df = pd.DataFrame([json_data])
                     elif isinstance(json_data, list):
                         raw_df = pd.DataFrame(json_data)
@@ -444,27 +440,42 @@ if not st.session_state.processed:
 
                     gc.collect()
 
-                    # 1. Renombrar columnas
-                    raw_df = raw_df.rename(columns={
-                        'id_jugador': 'id',
-                        'rol_equipo': 'team',
-                        'pos_x': 'x',
-                        'pos_y': 'y'
-                    })
+                    # 2. RENOMBRADO FLEXIBLE Y NORMALIZACIÓN DE COLUMNAS
+                    # Mapeo de múltiples posibles nombres que pueda enviar el backend
+                    column_map = {
+                        'id_jugador': 'id', 'player_id': 'id', 'track_id': 'id',
+                        'rol_equipo': 'team', 'equipo': 'team', 'team_name': 'team',
+                        'pos_x': 'x', 'x_pos': 'x', 'X': 'x', 'centroid_x': 'x',
+                        'pos_y': 'y', 'y_pos': 'y', 'Y': 'y', 'centroid_y': 'y'
+                    }
+                    raw_df = raw_df.rename(columns=column_map)
+
+                    # Verificar presencia de las columnas 'x' e 'y' requeridas
+                    if 'x' not in raw_df.columns or 'y' not in raw_df.columns:
+                        st.error(f"No se encontraron las coordenadas 'x' e 'y'. Columnas recibidas del backend: {list(raw_df.columns)}")
+                        st.stop()
+
+                    if 'id' not in raw_df.columns:
+                        raw_df['id'] = 0
+                    if 'team' not in raw_df.columns:
+                        raw_df['team'] = 'home'
 
                     raw_df['class'] = 'player'
 
-                    # 2. Extraer y procesar filas de balón
-                    if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
+                    # 3. Procesar filas de balón si existen
+                    balon_x_col = next((c for c in ['balon_x', 'ball_x', 'b_x'] if c in raw_df.columns), None)
+                    balon_y_col = next((c for c in ['balon_y', 'ball_y', 'b_y'] if c in raw_df.columns), None)
+
+                    if balon_x_col and balon_y_col:
                         ball_rows = raw_df[
-                            (raw_df['balon_x'].notna()) &
-                            (raw_df['balon_y'].notna()) &
-                            (raw_df['balon_x'] != -1) &
-                            (raw_df['balon_y'] != -1)
-                        ][['frame', 'balon_x', 'balon_y']].drop_duplicates()
+                            (raw_df[balon_x_col].notna()) &
+                            (raw_df[balon_y_col].notna()) &
+                            (raw_df[balon_x_col] != -1) &
+                            (raw_df[balon_y_col] != -1)
+                        ][['frame', balon_x_col, balon_y_col]].drop_duplicates()
 
                         if not ball_rows.empty:
-                            ball_rows = ball_rows.rename(columns={'balon_x': 'x', 'balon_y': 'y'})
+                            ball_rows = ball_rows.rename(columns={balon_x_col: 'x', balon_y_col: 'y'})
                             ball_rows['id'] = 9999
                             ball_rows['team'] = 'ball'
                             ball_rows['class'] = 'ball'
@@ -472,7 +483,7 @@ if not st.session_state.processed:
 
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 3. ESCALADO MÉTRICO INTELIGENTE (0..105m x 0..68m)
+                    # 4. ESCALADO MÉTRICO INTELIGENTE (0..105m x 0..68m)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
@@ -502,7 +513,7 @@ if not st.session_state.processed:
                     raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
                     raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
-                    # 4. Normalizar nombres de equipos
+                    # 5. Normalizar nombres de equipos
                     raw_df['team'] = raw_df['team'].replace({
                         'Equipo_1': 'home',
                         'Equipo_2': 'away',
@@ -510,7 +521,7 @@ if not st.session_state.processed:
                         'equipo_2': 'away'
                     })
 
-                    # 5. Calcular métricas finales
+                    # 6. Calcular métricas finales
                     metrics = compute_distances_and_metrics(raw_df)
 
                     st.session_state.df = raw_df
