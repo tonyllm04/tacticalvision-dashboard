@@ -428,20 +428,19 @@ if not st.session_state.processed:
 
                     json_data = response.json()
 
-                    # 1. Validación e Ingesta del JSON directo
+                    # 1. Ingesta y desempaquetado del JSON devuelto por el backend
                     if isinstance(json_data, dict):
                         if 'error' in json_data or 'detail' in json_data:
                             st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
                             st.stop()
                         
-                        # Extraer la lista de registros buscando claves comunes de wrappers
+                        # Buscar si los datos vienen dentro de una clave wrapper
                         records = None
                         for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas', 'task_id']:
                             if key in json_data and isinstance(json_data[key], list):
                                 records = json_data[key]
                                 break
 
-                        # Si ninguna clave conocida contenía una lista, tomar la primera lista que se encuentre en el JSON
                         if records is None:
                             for val in json_data.values():
                                 if isinstance(val, list):
@@ -462,18 +461,14 @@ if not st.session_state.processed:
                         st.error("Formato JSON no reconocido devuelto por el servidor.")
                         st.stop()
 
-                    # Desempaquetar si la columna única 'task_id' contiene diccionarios o listas
-                    if 'task_id' in raw_df.columns and ('x' not in raw_df.columns and 'pos_x' not in raw_df.columns):
-                        if len(raw_df) > 0 and isinstance(raw_df['task_id'].iloc[0], list):
-                            raw_df = pd.DataFrame(raw_df['task_id'].iloc[0])
-                        elif len(raw_df) > 0 and isinstance(raw_df['task_id'].iloc[0], dict):
-                            raw_df = pd.DataFrame(raw_df['task_id'].tolist())
-                                
-                    elif isinstance(json_data, list):
-                        raw_df = pd.DataFrame(json_data)
-                    else:
-                        st.error("Formato JSON no reconocido devuelto por el servidor.")
-                        st.stop()
+                    # Si el DataFrame se creó con una única columna 'task_id' que contiene la lista/dict
+                    if 'task_id' in raw_df.columns and 'x' not in raw_df.columns and 'pos_x' not in raw_df.columns:
+                        if len(raw_df) > 0:
+                            primer_elem = raw_df['task_id'].iloc[0]
+                            if isinstance(primer_elem, list):
+                                raw_df = pd.DataFrame(primer_elem)
+                            elif isinstance(primer_elem, dict):
+                                raw_df = pd.DataFrame(raw_df['task_id'].tolist())
 
                     if raw_df.empty:
                         st.error("El backend devolvió un DataFrame vacío.")
@@ -490,7 +485,7 @@ if not st.session_state.processed:
                     }
                     raw_df = raw_df.rename(columns=column_map)
 
-                    # Si 'task_id' venía como una columna en el DataFrame, la eliminamos
+                    # Eliminar 'task_id' redundante si ya tenemos las columnas desglosadas
                     if 'task_id' in raw_df.columns and len(raw_df.columns) > 1:
                         raw_df = raw_df.drop(columns=['task_id'], errors='ignore')
 
