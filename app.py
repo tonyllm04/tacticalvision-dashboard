@@ -411,6 +411,7 @@ if not st.session_state.processed:
                     INIT_URL = f"{BASE_URL}/procesar"
                     headers = {"ngrok-skip-browser-warning": "true"}
 
+                    # Aumentamos el timeout a 1 hora para permitir que finalice la ejecución sincrónica de YOLOv8
                     response = requests.post(INIT_URL, files=files, headers=headers, timeout=3600)
 
                     if response.status_code != 200:
@@ -419,62 +420,24 @@ if not st.session_state.processed:
 
                     json_data = response.json()
 
-                    # --- GESTIÓN DE POLLING PARA API ASÍNCRONA (task_id) ---
-                    if isinstance(json_data, dict) and 'task_id' in json_data:
-                        task_id = json_data['task_id']
-                        st.write(f"2. Tarea registrada con ID: `{task_id}`. Procesando vídeo...")
-                        
-                        # IMPORTANT: Ajusta '/tarea/' por el endpoint exacto que tengas en tu FastAPI (ej: '/resultado/', '/task/')
-                        STATUS_URL = f"{BASE_URL}/tarea/{task_id}" 
-                        
-                        max_intentos = 120  # 10 minutos máximo
-                        completado = False
-                        
-                        for _ in range(max_intentos):
-                            time.sleep(5)
-                            res_status = requests.get(STATUS_URL, headers=headers)
-                            
-                            # Si la tarea está lista y devuelve OK (200)
-                            if res_status.status_code == 200:
-                                status_data = res_status.json()
-                                
-                                if isinstance(status_data, list):
-                                    json_data = status_data
-                                    completado = True
-                                    break
-                                elif isinstance(status_data, dict):
-                                    estado = str(status_data.get('status', '')).lower()
-                                    if estado in ['completed', 'finished', 'success', 'done', 'finalizado']:
-                                        json_data = status_data.get('result', status_data.get('data', status_data))
-                                        completado = True
-                                        break
-                                    elif estado in ['failed', 'error']:
-                                        st.error(f"Error en la tarea remota: {status_data.get('error')}")
-                                        st.stop()
-                            # Si la ruta no se encuentra (404), prueba con endpoints alternativos habituales
-                            elif res_status.status_code == 404:
-                                # Probar fallback automático si '/tarea/' falla
-                                fallback_url = f"{BASE_URL}/resultado/{task_id}"
-                                res_fallback = requests.get(fallback_url, headers=headers)
-                                if res_fallback.status_code == 200:
-                                    STATUS_URL = fallback_url
-                                    json_data = res_fallback.json()
-                                    completado = True
-                                    break
-
-                        if not completado:
-                            st.error("No se pudo obtener el resultado del servidor. Verifica la ruta del endpoint status/resultado en tu FastAPI.")
-                            st.stop()
-
-                    # 1. Validación e ingesta del JSON
+                    # 1. Validación e Ingesta del JSON directo
                     if isinstance(json_data, dict):
                         if 'error' in json_data or 'detail' in json_data:
                             st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
                             st.stop()
-                        try:
-                            raw_df = pd.DataFrame(json_data)
-                        except ValueError:
-                            raw_df = pd.DataFrame([json_data])
+                        
+                        # Extraer la lista de datos si viene dentro de una clave wrapper
+                        if 'data' in json_data:
+                            raw_df = pd.DataFrame(json_data['data'])
+                        elif 'result' in json_data:
+                            raw_df = pd.DataFrame(json_data['result'])
+                        elif 'detections' in json_data:
+                            raw_df = pd.DataFrame(json_data['detections'])
+                        else:
+                            try:
+                                raw_df = pd.DataFrame(json_data)
+                            except ValueError:
+                                raw_df = pd.DataFrame([json_data])
                     elif isinstance(json_data, list):
                         raw_df = pd.DataFrame(json_data)
                     else:
@@ -495,6 +458,10 @@ if not st.session_state.processed:
                         'pos_y': 'y', 'y_pos': 'y', 'Y': 'y', 'centroid_y': 'y'
                     }
                     raw_df = raw_df.rename(columns=column_map)
+
+                    # Si 'task_id' venía como una columna en el DataFrame, la eliminamos
+                    if 'task_id' in raw_df.columns and len(raw_df.columns) > 1:
+                        raw_df = raw_df.drop(columns=['task_id'], errors='ignore')
 
                     if 'x' not in raw_df.columns or 'y' not in raw_df.columns:
                         st.error(f"No se encontraron las coordenadas 'x' e 'y'. Columnas recibidas: {list(raw_df.columns)}")
