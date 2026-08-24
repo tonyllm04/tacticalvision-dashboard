@@ -435,29 +435,43 @@ if not st.session_state.processed:
 
                     # 2. Polling hacia el endpoint /estado/{task_id} (Coincide con backend.py)
                     st.write(f"Tarea iniciada en el servidor (ID: `{task_id}`). Esperando a que finalice el procesamiento...")
-                    
+
                     STATUS_URL = f"{BASE_URL}/estado/{task_id}"
-                    max_intentos = 300  # Hasta 10 minutos de espera
+                    
+                    max_intentos = 900  # 900 x 2s = 30 Minutos máximos
                     completado = False
 
-                    for _ in range(max_intentos):
-                        time.sleep(2)
-                        res_status = requests.get(STATUS_URL, headers=headers)
-                        
-                        if res_status.status_code == 200:
-                            status_data = res_status.json()
-                            estado = status_data.get('status')
-                            
-                            if estado == 'completed':
-                                json_data = status_data.get('data', [])
-                                completado = True
-                                break
-                            elif estado == 'error':
-                                st.error(f"La tarea falló en el servidor: {status_data.get('message')}")
-                                st.stop()
+                    progress_text = st.empty()
                     
+                    for intento in range(max_intentos):
+                        time.sleep(2)
+                        
+                        try:
+                            res_status = requests.get(STATUS_URL, headers=headers, timeout=10)
+                            
+                            if res_status.status_code == 200:
+                                status_data = res_status.json()
+                                estado = status_data.get('status')
+                                
+                                if estado == 'completed':
+                                    json_data = status_data.get('data', [])
+                                    completado = True
+                                    break
+                                elif estado == 'error':
+                                    st.error(f"La tarea falló en el servidor: {status_data.get('message')}")
+                                    st.stop()
+                                else:
+                                    minutos = (intento * 2) // 60
+                                    segundos = (intento * 2) % 60
+                                    progress_text.text(f"Procesando frame por frame con YOLOv8... Tiempo transcurrido: {minutos:02d}:{segundos:02d}")
+                        except requests.exceptions.RequestException:
+                            # Ignorar caídas de conexión temporales mientras el servidor procesa a alto rendimiento
+                            pass
+                    
+                    progress_text.empty()
+
                     if not completado:
-                        st.error("El tiempo de espera para completar la tarea ha expirado.")
+                        st.error("El tiempo de espera para completar la tarea ha expirado (Superó los 30 min).")
                         st.stop()
 
                     # 3. Ingesta y normalización en el DataFrame
