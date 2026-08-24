@@ -17,6 +17,14 @@ from extraccion_datos import generar_dataset_deteccion
 import extraccion_datos
 from visualizar_seguimiento_equipos import procesar_y_limpiar_dataset
 
+# Limpieza de variables residuales si no se ha iniciado un análisis explícito
+if 'processed' not in st.session_state:
+    st.session_state.processed = False
+    st.session_state.df = None
+    st.session_state.metrics = None
+    # Eliminar task_id si quedó guardado en la sesión
+    st.session_state.pop('task_id', None)
+
 # ------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
