@@ -436,19 +436,38 @@ if not st.session_state.processed:
                         
                         # Extraer la lista de registros buscando claves comunes de wrappers
                         records = None
-                        for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas']:
+                        for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas', 'task_id']:
                             if key in json_data and isinstance(json_data[key], list):
                                 records = json_data[key]
                                 break
 
+                        # Si ninguna clave conocida contenía una lista, tomar la primera lista que se encuentre en el JSON
+                        if records is None:
+                            for val in json_data.values():
+                                if isinstance(val, list):
+                                    records = val
+                                    break
+
                         if records is not None:
                             raw_df = pd.DataFrame(records)
                         else:
-                            # Si no se encuentra ninguna clave wrapper conocida, intentar convertirm
                             try:
                                 raw_df = pd.DataFrame(json_data)
                             except ValueError:
                                 raw_df = pd.DataFrame([json_data])
+                                
+                    elif isinstance(json_data, list):
+                        raw_df = pd.DataFrame(json_data)
+                    else:
+                        st.error("Formato JSON no reconocido devuelto por el servidor.")
+                        st.stop()
+
+                    # Desempaquetar si la columna única 'task_id' contiene diccionarios o listas
+                    if 'task_id' in raw_df.columns and ('x' not in raw_df.columns and 'pos_x' not in raw_df.columns):
+                        if len(raw_df) > 0 and isinstance(raw_df['task_id'].iloc[0], list):
+                            raw_df = pd.DataFrame(raw_df['task_id'].iloc[0])
+                        elif len(raw_df) > 0 and isinstance(raw_df['task_id'].iloc[0], dict):
+                            raw_df = pd.DataFrame(raw_df['task_id'].tolist())
                                 
                     elif isinstance(json_data, list):
                         raw_df = pd.DataFrame(json_data)
