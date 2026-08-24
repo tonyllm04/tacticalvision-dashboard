@@ -434,21 +434,28 @@ if not st.session_state.processed:
                             st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
                             st.stop()
                         
-                        # Buscar si los datos vienen dentro de una clave wrapper
-                        records = None
-                        for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas', 'task_id']:
-                            if key in json_data and isinstance(json_data[key], list):
-                                records = json_data[key]
-                                break
-
-                        if records is None:
-                            for val in json_data.values():
-                                if isinstance(val, list):
-                                    records = val
+                        # Si el JSON trae 'task_id' como clave principal con la lista de datos
+                        if 'task_id' in json_data and isinstance(json_data['task_id'], (list, dict)):
+                            records = json_data['task_id']
+                        else:
+                            # Buscar si los datos vienen dentro de otra clave wrapper
+                            records = None
+                            for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas']:
+                                if key in json_data and isinstance(json_data[key], list):
+                                    records = json_data[key]
                                     break
 
+                            if records is None:
+                                for val in json_data.values():
+                                    if isinstance(val, list):
+                                        records = val
+                                        break
+
                         if records is not None:
-                            raw_df = pd.DataFrame(records)
+                            if isinstance(records, dict):
+                                raw_df = pd.DataFrame([records])
+                            else:
+                                raw_df = pd.DataFrame(records)
                         else:
                             try:
                                 raw_df = pd.DataFrame(json_data)
@@ -461,13 +468,13 @@ if not st.session_state.processed:
                         st.error("Formato JSON no reconocido devuelto por el servidor.")
                         st.stop()
 
-                    # Si el DataFrame se creó con una única columna 'task_id' que contiene la lista/dict
-                    if 'task_id' in raw_df.columns and 'x' not in raw_df.columns and 'pos_x' not in raw_df.columns:
+                    # DESEMPAQUETADO FORZADO: Si 'task_id' es una columna y contiene la lista/diccionario de detecciones
+                    if 'task_id' in raw_df.columns:
                         if len(raw_df) > 0:
-                            primer_elem = raw_df['task_id'].iloc[0]
-                            if isinstance(primer_elem, list):
-                                raw_df = pd.DataFrame(primer_elem)
-                            elif isinstance(primer_elem, dict):
+                            contenido = raw_df['task_id'].iloc[0]
+                            if isinstance(contenido, list):
+                                raw_df = pd.DataFrame(contenido)
+                            elif isinstance(contenido, dict):
                                 raw_df = pd.DataFrame(raw_df['task_id'].tolist())
 
                     if raw_df.empty:
