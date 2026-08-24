@@ -81,6 +81,7 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                 classes=[0, 32], 
                 imgsz=1280, 
                 conf=0.03,
+                seed=42,
                 verbose=False
             )
 
