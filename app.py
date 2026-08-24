@@ -419,63 +419,49 @@ if not st.session_state.processed:
                     INIT_URL = f"{BASE_URL}/procesar"
                     headers = {"ngrok-skip-browser-warning": "true"}
 
-                    # Aumentamos el timeout a 1 hora para permitir que finalice la ejecución sincrónica de YOLOv8
-                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=3600)
+                    # 1. Enviar el vídeo al backend para iniciar la BackgroundTask
+                    response = requests.post(INIT_URL, files=files, headers=headers, timeout=60)
 
                     if response.status_code != 200:
                         st.error(f"Error backend ({response.status_code}): {response.text}")
                         st.stop()
 
                     json_data = response.json()
+                    task_id = json_data.get('task_id')
 
-                    # 1. Ingesta y desempaquetado del JSON devuelto por el backend
-                    if isinstance(json_data, dict):
-                        if 'error' in json_data or 'detail' in json_data:
-                            st.error(f"El backend reportó un error: {json_data.get('error') or json_data.get('detail')}")
-                            st.stop()
-                        
-                        # Si el JSON trae 'task_id' como clave principal con la lista de datos
-                        if 'task_id' in json_data and isinstance(json_data['task_id'], (list, dict)):
-                            records = json_data['task_id']
-                        else:
-                            # Buscar si los datos vienen dentro de otra clave wrapper
-                            records = None
-                            for key in ['data', 'result', 'detections', 'dataset', 'resultados', 'filas']:
-                                if key in json_data and isinstance(json_data[key], list):
-                                    records = json_data[key]
-                                    break
-
-                            if records is None:
-                                for val in json_data.values():
-                                    if isinstance(val, list):
-                                        records = val
-                                        break
-
-                        if records is not None:
-                            if isinstance(records, dict):
-                                raw_df = pd.DataFrame([records])
-                            else:
-                                raw_df = pd.DataFrame(records)
-                        else:
-                            try:
-                                raw_df = pd.DataFrame(json_data)
-                            except ValueError:
-                                raw_df = pd.DataFrame([json_data])
-                                
-                    elif isinstance(json_data, list):
-                        raw_df = pd.DataFrame(json_data)
-                    else:
-                        st.error("Formato JSON no reconocido devuelto por el servidor.")
+                    if not task_id:
+                        st.error("El backend no devolvió un task_id válido.")
                         st.stop()
 
-                    # DESEMPAQUETADO FORZADO: Si 'task_id' es una columna y contiene la lista/diccionario de detecciones
-                    if 'task_id' in raw_df.columns:
-                        if len(raw_df) > 0:
-                            contenido = raw_df['task_id'].iloc[0]
-                            if isinstance(contenido, list):
-                                raw_df = pd.DataFrame(contenido)
-                            elif isinstance(contenido, dict):
-                                raw_df = pd.DataFrame(raw_df['task_id'].tolist())
+                    # 2. Polling hacia el endpoint /estado/{task_id} (Coincide con backend.py)
+                    st.write(f"Tarea iniciada en el servidor (ID: `{task_id}`). Esperando a que finalice el procesamiento...")
+                    
+                    STATUS_URL = f"{BASE_URL}/estado/{task_id}"
+                    max_intentos = 300  # Hasta 10 minutos de espera
+                    completado = False
+
+                    for _ in range(max_intentos):
+                        time.sleep(2)
+                        res_status = requests.get(STATUS_URL, headers=headers)
+                        
+                        if res_status.status_code == 200:
+                            status_data = res_status.json()
+                            estado = status_data.get('status')
+                            
+                            if estado == 'completed':
+                                json_data = status_data.get('data', [])
+                                completado = True
+                                break
+                            elif estado == 'error':
+                                st.error(f"La tarea falló en el servidor: {status_data.get('message')}")
+                                st.stop()
+                    
+                    if not completado:
+                        st.error("El tiempo de espera para completar la tarea ha expirado.")
+                        st.stop()
+
+                    # 3. Ingesta y normalización en el DataFrame
+                    raw_df = pd.DataFrame(json_data)
 
                     if raw_df.empty:
                         st.error("El backend devolvió un DataFrame vacío.")
@@ -483,7 +469,7 @@ if not st.session_state.processed:
 
                     gc.collect()
 
-                    # 2. RENOMBRADO FLEXIBLE Y NORMALIZACIÓN DE COLUMNAS
+                    # RENOMBRADO DE COLUMNAS (Crucial para mapear pos_x -> x, pos_y -> y)
                     column_map = {
                         'id_jugador': 'id', 'player_id': 'id', 'track_id': 'id',
                         'rol_equipo': 'team', 'equipo': 'team', 'team_name': 'team',
@@ -491,10 +477,6 @@ if not st.session_state.processed:
                         'pos_y': 'y', 'y_pos': 'y', 'Y': 'y', 'centroid_y': 'y'
                     }
                     raw_df = raw_df.rename(columns=column_map)
-
-                    # Eliminar 'task_id' redundante si ya tenemos las columnas desglosadas
-                    if 'task_id' in raw_df.columns and len(raw_df.columns) > 1:
-                        raw_df = raw_df.drop(columns=['task_id'], errors='ignore')
 
                     if 'x' not in raw_df.columns or 'y' not in raw_df.columns:
                         st.error(f"No se encontraron las coordenadas 'x' e 'y'. Columnas recibidas: {list(raw_df.columns)}")
@@ -507,7 +489,7 @@ if not st.session_state.processed:
 
                     raw_df['class'] = 'player'
 
-                    # 3. Procesar filas de balón si existen
+                    # Procesar filas de balón si existen
                     balon_x_col = next((c for c in ['balon_x', 'ball_x', 'b_x'] if c in raw_df.columns), None)
                     balon_y_col = next((c for c in ['balon_y', 'ball_y', 'b_y'] if c in raw_df.columns), None)
 
