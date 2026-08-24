@@ -70,14 +70,11 @@ st.markdown("""
 
 
 def calcular_distribucion_tercios(df, home_team, away_team):
-    # 1. Filtrar solo jugadores
     df_jugadores = df[df['class'] == 'player'].copy()
     
-    # 2. Usar 'x' (largo del campo: 0 a 105m) en lugar de 'y'
     home_x = df_jugadores[df_jugadores['team'] == 'home']['x']
     away_x = df_jugadores[df_jugadores['team'] == 'away']['x']
     
-    # Porcentajes para el Local (Ataca de X=0 hacia X=105)
     def get_pcts_home(series):
         if len(series) == 0: return [0, 0, 0]
         defensivo = (series < 35).mean() * 100
@@ -85,7 +82,6 @@ def calcular_distribucion_tercios(df, home_team, away_team):
         ofensivo = (series > 70).mean() * 100
         return [round(defensivo), round(medio), round(ofensivo)]
 
-    # Porcentajes para el Visitante (Defiende en X=70..105, Ataca hacia X=0..35)
     def get_pcts_away(series):
         if len(series) == 0: return [0, 0, 0]
         defensivo = (series > 70).mean() * 100
@@ -103,20 +99,13 @@ def calcular_distribucion_tercios(df, home_team, away_team):
     })
 
 # ------------------------------------------------------------------------------
-#  MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
+# 2. MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
 # ------------------------------------------------------------------------------
 
-
 def compute_distances_and_metrics(df, min_id_duration_frames=3):
-    """
-    Cálculo de distancias y posesión con sincronización correcta de métricas
-    y gestión de tramos iniciales/finales sin balón.
-    """
     df = df.copy()
 
-    # ============================================================
     # 1. INTERPOLACIÓN DE BALÓN
-    # ============================================================
     frames_totales = sorted(df['frame'].unique())
     ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].drop_duplicates('frame')
     
@@ -128,9 +117,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     else:
         ball_dict = {}
 
-    # ============================================================
     # 2. FILTRADO DE JUGADORES Y DISTANCIAS
-    # ============================================================
     player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
     player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
@@ -144,16 +131,12 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     players['dy'] = players.groupby('id')['y'].diff()
     players['distancia_px'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
-    # Cambiar esto dentro de compute_distances_and_metrics:
-    UMBRAL_SALTO = 8.0   # En metros por frame (evita saltos por falsas detecciones)
-    UMBRAL_RUIDO = 0.05  # En metros (ignora micropasos o temblor de la detección)
+    UMBRAL_SALTO = 8.0
+    UMBRAL_RUIDO = 0.05
 
     players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
     players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
     players['distancia_px'] = players['distancia_px'].fillna(0.0)
-
-    # Al estar ya en metros (0-105, 0-68), 1 unidad = 1 metro:
-    players['distancia_m'] = players['distancia_px']
 
     K_PIXELS_A_METROS = 0.25
     FRAME_STRIDE = 3
@@ -170,9 +153,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         .rename(columns={'distancia_m': 'dist_meters'})
     )
 
-    # ============================================================
     # 3. CENTROIDES
-    # ============================================================
     player_data = df[df['class'] == 'player']
     centroids = player_data.groupby(['frame', 'team'])[['x', 'y']].mean().reset_index()
 
@@ -185,9 +166,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away']) ** 2
     )
 
-    # ============================================================
     # 4. POSESIÓN FRAME A FRAME
-    # ============================================================
     UMBRAL_CONTACTO = 15.0
     UMBRAL_INERCIA = 25.0
     MAX_FRAMES_INERCIA = 25
@@ -289,10 +268,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             'umbral_contacto': UMBRAL_CONTACTO, 'umbral_inercia': UMBRAL_INERCIA
         })
 
-    # ============================================================
-    # 5. AJUSTES RETROACTIVOS Y FINALES (BACKFILL & FORWARDFILL)
-    # ============================================================
-    # A) Retro-inicialización (Frames iniciales sin balón)
+    # 5. AJUSTES RETROACTIVOS Y FINALES
     primer_poseedor = next((item['decision_final'] for item in ramas_debug if item['decision_final'] in ['home', 'away']), None)
     if primer_poseedor:
         for item in ramas_debug:
@@ -302,8 +278,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             else:
                 break
 
-    # B) Propagación final (Frames finales donde el balón desaparece)
-    
     ultimo_poseedor = None
     for item in ramas_debug:
         if item['decision_final'] in ['home', 'away']:
@@ -312,24 +286,15 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             item['rama'] = 'PROPAGACION_FINAL'
             item['decision_final'] = ultimo_poseedor
 
-    # ============================================================
-    # REGLA DE TRANSICIÓN EN PASES/DESPEJES (SPLIT DE LAGUNAS)
-    # ============================================================
-    # Si hay un cambio de equipo entre dos detecciones reales,
-    # dividimos el tramo sin balón al 50% entre ambos equipos.
-    
     indices_cambio = []
     for i in range(1, len(ramas_debug)):
         prev = ramas_debug[i-1]['decision_final']
         curr = ramas_debug[i]['decision_final']
         if prev in ['home', 'away'] and curr in ['home', 'away'] and prev != curr:
-            # Encontrado un cambio directo o con puente de inercia/disputa
             indices_cambio.append(i)
 
-    # Para cada cambio de posesión, suavizamos el tramo anterior
     for idx in indices_cambio:
         equipo_nuevo = ramas_debug[idx]['decision_final']
-        # Cambiamos range(1, 15) por range(1, 25) para capturar vuelos/despejes más largos
         for retro in range(1, 25):
             idx_prev = idx - retro
             if idx_prev >= 0 and ramas_debug[idx_prev]['rama'] in ['INERCIA', 'BALON_PERDIDO_INERCIA', 'INERCIA_DECAIMIENTO']:
@@ -338,9 +303,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             else:
                 break
 
-    # ============================================================
-    # 6. CÁLCULO FINAL DE METRICAS Y PORCENTAJES (POST-PROCESADO)
-    # ============================================================
+    # 6. CÁLCULO FINAL DE MÉTRICAS Y PORCENTAJES
     decision_series = pd.Series([item['decision_final'] for item in ramas_debug])
     counts = decision_series.value_counts().to_dict()
 
@@ -357,10 +320,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         poss_home = 0
         poss_away = 0
 
-    # ============================================================
-    # 7. DISTRIBUCIÓN TERRITORIAL (TERCIOS DEL CAMPO)
-    # ============================================================
-    # Obtenemos los nombres de los equipos desde session_state de forma segura
+    # 7. DISTRIBUCIÓN TERRITORIAL
     home_name = st.session_state.get('home_team', 'Local')
     away_name = st.session_state.get('away_team', 'Visitante')
     
@@ -383,9 +343,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'ramas_df': pd.DataFrame(ramas_debug)
     }
 
-
 # ------------------------------------------------------------------------------
-# 4. INTERFAZ DE USUARIO (STREAMLIT)
+# 3. INTERFAZ DE USUARIO (STREAMLIT)
 # ------------------------------------------------------------------------------
 st.sidebar.title("Panel de Control")
 
@@ -443,14 +402,10 @@ if not st.session_state.processed:
                         )
                     }
 
-                    # Obtiene la URL de Ngrok desde los Secrets de Streamlit
                     BASE_URL = st.secrets.get("API_URL", "http://127.0.0.1:8000").rstrip("/")
                     INIT_URL = f"{BASE_URL}/procesar"
-
-                    # Incluye cabecera para ignorar pantalla de aviso de Ngrok
                     headers = {"ngrok-skip-browser-warning": "true"}
 
-                    # 1. Enviar el vídeo e iniciar la tarea asíncrona
                     response = requests.post(INIT_URL, files=files, headers=headers, timeout=60)
 
                     if response.status_code != 200:
@@ -460,14 +415,12 @@ if not st.session_state.processed:
                     task_id = response.json().get("task_id")
                     st.write("2. Vídeo recibido. Procesando YOLOv8 e histogramas en backend local...")
 
-                    # 2. Bucle de consulta (polling) para evitar el timeout de Ngrok
                     status_url = f"{BASE_URL}/estado/{task_id}"
                     finished = False
 
                     with st.spinner("Procesando fotogramas... Esto puede tardar unos minutos."):
                         while not finished:
-                            time.sleep(4)  # Consulta cada 4 segundos
-                            
+                            time.sleep(4)
                             res_status = requests.get(status_url, headers=headers).json()
                             
                             if res_status.get("status") == "completed":
@@ -483,15 +436,11 @@ if not st.session_state.processed:
                         st.error("El backend devolvió un conjunto de datos vacío.")
                         st.stop()
 
-                    # Guardar depuración
                     st.session_state.debug_csv_columns = list(raw_df.columns)
                     st.session_state.debug_csv_head = raw_df.head().to_dict()
 
                     gc.collect()
 
-                    # ==============================================================================
-                    # BLOQUE CORREGIDO DE PROCESAMIENTO Y ESCALADO A METROS (105x68)
-                    # ==============================================================================
                     raw_df = raw_df.rename(columns={
                         'id_jugador': 'id',
                         'rol_equipo': 'team',
@@ -501,7 +450,6 @@ if not st.session_state.processed:
 
                     raw_df['class'] = 'player'
 
-                    # 1. TRATAMIENTO DEL BALÓN
                     if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
                         ball_rows = raw_df[
                             (raw_df['balon_x'].notna()) &
@@ -523,25 +471,21 @@ if not st.session_state.processed:
                             ball_rows['balon_y'] = np.nan
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 2. NORMALIZACIÓN Y ESCALADO A METROS REALES (105m x 68m)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
                     raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0)
                     raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0)
 
-                    # Detectar el rango actual de coordenadas
                     max_x = raw_df['x'].max()
                     max_y = raw_df['y'].max()
 
-                    # Si los datos vienen en píxeles de cámara (ej. 1920x1080 o 1280x720)
                     if max_x > 105.0 or max_y > 68.0:
                         ref_x = max_x if max_x > 105.0 else 1920.0
                         ref_y = max_y if max_y > 68.0 else 1080.0
                         raw_df['x'] = (raw_df['x'] / ref_x) * FIELD_LENGTH
                         raw_df['y'] = (raw_df['y'] / ref_y) * FIELD_WIDTH
                     else:
-                        # Si las coordenadas venían comprimidas en una escala pequeña (ej. 0..30)
                         if max_x > 0 and max_x < 50.0:
                             raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
                         if max_y > 0 and max_y < 35.0:
@@ -557,15 +501,13 @@ if not st.session_state.processed:
                         'equipo_2': 'away'
                     })
 
-                    # 3. MÉTRICAS DE RENDIMIENTO
                     metrics = compute_distances_and_metrics(raw_df)
 
-                    # Guardar en sesión
                     st.session_state.df = raw_df
                     st.session_state.metrics = metrics
                     st.session_state.processed = True
 
-                    status.update(label="Análisis de 1800 frames completado con éxito", state="complete")
+                    status.update(label="Análisis completado con éxito", state="complete")
                     st.rerun()
 
                 except Exception as e:
@@ -576,10 +518,6 @@ if not st.session_state.processed:
                     st.code(error_text)
                     raise e
 
-    if 'pipeline_error' in st.session_state:
-        st.error("EXCEPCIÓN REAL DEL PIPELINE")
-        st.code(st.session_state.pipeline_error)
-
 else:
     # Cargar variables guardadas en sesión
     home_team = st.session_state.home_team
@@ -589,232 +527,7 @@ else:
     df = st.session_state.df
     metrics = st.session_state.metrics
 
-    decision_debug = st.session_state.metrics.get(
-    'decision_debug',
-    []
-    )
-
-    debug_distancias = metrics.get('distancias_debug', pd.DataFrame())
-    decision_df = metrics.get('decision_df', pd.DataFrame())
-    ramas_df = metrics.get('ramas_df', pd.DataFrame())
-
-    possession_counts = {
-        'home': metrics.get('possession_home_count', 0),
-        'away': metrics.get('possession_away_count', 0),
-        'disputed': metrics.get('possession_disputed_count', 0)
-    }
-
-    # =====================================================
-    # DEBUG POSESIÓN
-    # =====================================================
-
-    decision_df = metrics.get(
-        'decision_df',
-        pd.DataFrame()
-    )
-
-    distancias_debug = metrics.get(
-        'distancias_debug',
-        pd.DataFrame()
-    )
-
-    ramas_df = metrics.get(
-        'ramas_df',
-        pd.DataFrame()
-    )
-
-    possession_counts = {
-        'home': metrics.get('possession_home_count', 0),
-        'away': metrics.get('possession_away_count', 0),
-        'disputed': metrics.get('possession_disputed_count', 0)
-    }
-
-
-    # =====================================================
-    # DEBUG RAMAS POSESIÓN
-    # =====================================================
-
-    st.write("### DEBUG RAMAS POSESIÓN")
-
-    if not ramas_df.empty:
-
-        st.write(
-            ramas_df['rama'].value_counts()
-        )
-
-        st.write("Decisiones finales:")
-
-        st.write(
-            ramas_df['decision_final'].value_counts()
-        )
-
-        st.write("Últimos frames antes de DISPUTED:")
-
-        disputed_rows = ramas_df[ramas_df['decision_final'] == 'disputed']
-
-        if not disputed_rows.empty:
-            columnas_validas = ['frame', 'jugador_id', 'equipo_cercano', 'distancia', 'poseedor_actual', 'rama', 'decision_final']
-            st.dataframe(disputed_rows[columnas_validas])
-        else:
-            st.info("No hay frames registrados como DISPUTED.")
-
-    else:
-
-        st.write("NO HAY DATOS DE RAMAS")
-
-
-    # =====================================================
-    # DEBUG DECISIÓN POSESIÓN
-    # =====================================================
-
-    st.markdown("### DEBUG DECISIÓN POSESIÓN")
-
-    if not decision_df.empty:
-
-        st.write(
-            f"Número de decisiones: `{len(decision_df)}`"
-        )
-
-        st.dataframe(
-            decision_df.head(50)
-        )
-
-        st.write("Reparto decisiones:")
-
-        st.write(
-            decision_df['decision_final'].value_counts()
-        )
-
-    else:
-
-        st.write("NO HAY DATOS DE DECISIÓN")
-
-
-    # =====================================================
-    # DEBUG DISTRIBUCIÓN DISTANCIAS
-    # =====================================================
-
-    st.write("### DEBUG DISTRIBUCIÓN DISTANCIAS")
-
-    if not distancias_debug.empty:
-
-        st.write(
-            f"Número de comprobaciones: `{len(distancias_debug)}`"
-        )
-
-        # Añadir decisión final a cada registro de distancia
-        if 'decision_final' not in distancias_debug.columns:
-
-            distancias_debug = distancias_debug.merge(
-                decision_df[
-                    ['frame', 'decision_final']
-                ],
-                on='frame',
-                how='left'
-            )
-
-        st.write(
-            "Columnas:",
-            distancias_debug.columns.tolist()
-        )
-
-        st.write(
-            "Distancias de los frames disputed:"
-        )
-
-        distancias_disputed = distancias_debug[
-            distancias_debug['decision_final'] == 'disputed'
-        ]
-
-        if not distancias_disputed.empty:
-
-            st.dataframe(
-                distancias_disputed[
-                    ['frame', 'id', 'team', 'distancia']
-                ].head(50)
-            )
-
-        else:
-
-            st.write(
-                "No hay frames disputed con distancia registrada."
-            )
-
-    else:
-
-        st.write(
-            "NO HAY DATOS DE DEBUG DE DISTANCIAS"
-        )
-
-
-    # =====================================================
-    # DEBUG REPARTO POSESIÓN
-    # =====================================================
-
-    st.write("### DEBUG REPARTO POSESIÓN")
-
-    home_count = possession_counts['home']
-    away_count = possession_counts['away']
-    disputed_count = possession_counts['disputed']
-
-    total_valid = home_count + away_count
-
-    if total_valid > 0:
-
-        poss_home = round(
-            100 * home_count / total_valid
-        )
-
-        poss_away = round(
-            100 * away_count / total_valid
-        )
-
-    else:
-
-        poss_home = 0
-        poss_away = 0
-
-    st.write(f"Home: `{home_count}`")
-    st.write(f"Away: `{away_count}`")
-    st.write(f"Disputed: `{disputed_count}`")
-    st.write(f"Total válido: `{total_valid}`")
-    st.write(f"Porcentaje home: `{poss_home}`")
-    st.write(f"Porcentaje away: `{poss_away}`")
-
-    # =====================================================
-    # DEBUG DISTANCIAS POSESIÓN
-    # =====================================================
-
-    frame_debug = 171
-
-    jugadores_frame = df[
-        (df['frame'] == frame_debug) &
-        (df['class'] == 'player')
-    ].copy()
-
-    balon_frame = df[
-        (df['frame'] == frame_debug) &
-        (df['class'] == 'ball')
-    ].copy()
-
-    # ================= DEBUG DASHBOARD =================
-    st.markdown('---')
-    st.subheader('DEBUG DASHBOARD')
-
-    st.write('Filas totales df:', len(df))
-
-    st.write('Valores únicos class:')
-    st.write(df['class'].value_counts())
-
-    st.write('Equipos:')
-    st.write(df['team'].value_counts())
-
-    st.write('Posesión home:', metrics['poss_home'])
-    st.write('Posesión away:', metrics['poss_away'])
-
-    st.markdown('---')
-
-    # Encabezado
+    # Encabezado principal del Informe Telemétrico
     st.title("TacticalVision")
     st.caption(f"Informe Telemétrico Activo: **{home_team}** vs **{away_team}**")
 
@@ -868,29 +581,16 @@ else:
             fig.patch.set_facecolor('#0f172a')
             ax.set_facecolor('#1f7a1f')
 
-            # Campo verde real
-            ax.add_patch(patches.Rectangle((0, 0), 105, 68,
-                                        facecolor='#1f7a1f',
-                                        edgecolor='white', lw=2))
-
-            # Línea central
+            # Campo verde
+            ax.add_patch(patches.Rectangle((0, 0), 105, 68, facecolor='#1f7a1f', edgecolor='white', lw=2))
             ax.plot([52.5, 52.5], [0, 68], color='white', lw=2)
+            ax.add_patch(plt.Circle((52.5, 34), 9.15, fill=False, color='white', lw=2))
 
-            # Círculo central
-            ax.add_patch(plt.Circle((52.5, 34), 9.15,
-                                    fill=False, color='white', lw=2))
+            ax.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=2))
+            ax.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=2))
 
-            # Áreas grandes
-            ax.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32,
-                                        fill=False, edgecolor='white', lw=2))
-            ax.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32,
-                                        fill=False, edgecolor='white', lw=2))
-
-            # Áreas pequeñas
-            ax.add_patch(patches.Rectangle((0, 24.84), 5.5, 18.32,
-                                        fill=False, edgecolor='white', lw=2))
-            ax.add_patch(patches.Rectangle((105-5.5, 24.84), 5.5, 18.32,
-                                        fill=False, edgecolor='white', lw=2))
+            ax.add_patch(patches.Rectangle((0, 24.84), 5.5, 18.32, fill=False, edgecolor='white', lw=2))
+            ax.add_patch(patches.Rectangle((105-5.5, 24.84), 5.5, 18.32, fill=False, edgecolor='white', lw=2))
 
             # Porterías
             ax.plot([-2, 0], [30.34, 30.34], color='white', lw=3)
@@ -905,8 +605,6 @@ else:
             ax.set_ylim(68, 0)
             ax.set_aspect('equal')
             ax.axis('off')
-            
-            frame_df = df[df['frame'] == selected_frame]
             
             # Jugadores Locales
             home_players = frame_df[frame_df['team'] == 'home']
@@ -944,7 +642,7 @@ else:
             if not home_players.empty and not away_players.empty:
                 ax.plot([c_home_x, c_away_x], [c_home_y, c_away_y], color='#94a3b8', linestyle=':', linewidth=2, zorder=4)
             
-            # Polígono Convex Hull (Bloque Defensivo Local)
+            # Polígono Convex Hull
             if len(home_players) > 3:
                 try:
                     points = home_players[['x', 'y']].values
@@ -973,11 +671,6 @@ else:
                 </ul>
             </div>
             """, unsafe_allow_html=True)
-            
-            st.info("""
-                **Consejo Didáctico para Entrenamiento:**  
-                Si la distancia inter-centroide es alta durante la fase defensiva, realiza ejercicios de *basculación colectiva* reduciendo el ancho del bloque a un máximo de 30-35 metros para cerrar carriles interiores.
-            """)
 
     # --------------------------------------------------------------------------
     # PESTAÑA 2: MAPAS DE CALOR (EQUIPOS Y BALÓN)
@@ -997,19 +690,12 @@ else:
             fig_heat.patch.set_facecolor('#0f172a')
             ax_heat.set_facecolor('#1f7a1f')
 
-            # Campo verde
-            ax_heat.add_patch(patches.Rectangle((0, 0), 105, 68,
-                                                facecolor='#1f7a1f',
-                                                edgecolor='white', lw=2))
-
+            ax_heat.add_patch(patches.Rectangle((0, 0), 105, 68, facecolor='#1f7a1f', edgecolor='white', lw=2))
             ax_heat.plot([52.5, 52.5], [0, 68], color='white', lw=2)
-            ax_heat.add_patch(plt.Circle((52.5, 34), 9.15,
-                                        fill=False, color='white', lw=2))
+            ax_heat.add_patch(plt.Circle((52.5, 34), 9.15, fill=False, color='white', lw=2))
 
-            ax_heat.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32,
-                                                fill=False, edgecolor='white', lw=2))
-            ax_heat.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32,
-                                                fill=False, edgecolor='white', lw=2))
+            ax_heat.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=2))
+            ax_heat.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=2))
 
             ax_heat.set_xlim(0, 105)
             ax_heat.set_ylim(68, 0)
@@ -1052,26 +738,15 @@ else:
         with col_heat_info:
             st.subheader("Interpretación Telemétrica")
             
-            if heatmap_choice != "Balón (Excluyendo Balón Parado)":
-                st.markdown(f"""
-                <div class="tactical-card">
-                    <h4>Análisis Posicional: {heatmap_choice}</h4>
-                    <p>Muestra los núcleos de presencia constante de los jugadores a lo largo del clip.</p>
-                    <ul>
-                        <li><b>Saturación en Ocupación:</b> Las zonas más brillantes señalan las zonas donde más presencia tienen los equipos.</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div class="tactical-card">
-                    <h4>Mapa de Dinámica del Balón</h4>
-                    <p>Muestra la trayectoria y zonas de circulación del esférico.</p>
-                    <ul>
-                        <li><b>Zonas de Impacto:</b> Identifica en qué sector del campo se juega el partido con mayor frecuencia.</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="tactical-card">
+                <h4>Análisis Posicional: {heatmap_choice}</h4>
+                <p>Muestra los núcleos de presencia constante de los jugadores a lo largo del clip.</p>
+                <ul>
+                    <li><b>Saturación en Ocupación:</b> Las zonas más brillantes señalan las zonas donde más presencia tienen los equipos.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
     # PESTAÑA 3: MÉTRICAS FÍSICAS Y TÁCTICAS
@@ -1083,7 +758,6 @@ else:
 
         inter_df = metrics['inter_df']
         
-        # Se amplía figsize a (12, 4) para ocupar todo el ancho horizontal
         fig_lines, ax_lines = plt.subplots(figsize=(12, 4))
         fig_lines.patch.set_facecolor('#1e293b')
         ax_lines.set_facecolor('#0f172a')
@@ -1097,7 +771,6 @@ else:
         ax_lines.grid(True, linestyle=':', alpha=0.3, color='#475569')
         ax_lines.legend(facecolor='#1e293b', edgecolor='none', labelcolor='white')
 
-        # use_container_width=True estira la figura al 100% del contenedor de Streamlit
         st.pyplot(fig_lines, use_container_width=True)
 
         st.markdown("---")
@@ -1106,7 +779,6 @@ else:
         zone_col1, zone_col2 = st.columns([1, 1.2])
         
         with zone_col1:
-            # Ahora usa el dataframe calculado dinámicamente desde métricas
             zone_df = metrics.get('zone_df', pd.DataFrame()) 
             st.dataframe(zone_df, use_container_width=True, hide_index=True)
             
@@ -1114,15 +786,8 @@ else:
             st.info("""
             **Guía de Interpretación Táctica para el Entrenador:**
 
-            * **Distancia Inter-Centroides (Gráfica Superior):**
-                * **¿Qué es?** Mide la separación en metros entre el centro de gravedad del equipo local y el del visitante.
-                * **¿Cómo leerla?** 
-                    * **Picos altos (>20m):** Partidos abiertos, bloques estirados, transiciones rápidas o contraataques con mucha distancia entre líneas.
-                    * **Valles bajos (<10m):** Duelos de contacto directo, presión alta, bloques muy juntos o disputas concentradas en una misma zona.
-
-            * **Distribución Territorial por Tercios (Tabla):**
-                * **¿Qué es?** Mide qué porcentaje de presencia mantiene cada equipo en los tres tercios del campo a lo largo del clip.
-                * **¿Cómo leerla?** Permite identificar el plan de juego: un alto % en **Tercio Defensivo** indica bloque bajo/resistencia; un alto % en **Tercio Medio** señala control de posesión; y en **Tercio Ofensivo**, dominio territorial o presión tras pérdida en campo rival.
+            * **Distancia Inter-Centroides:** Mide la separación en metros entre el centro de gravedad del equipo local y el del visitante.
+            * **Distribución Territorial por Tercios:** Identifica el porcentaje de presencia de cada plantilla en defensivo, medio y ofensivo.
             """)
 
     # Botón de reinicio
