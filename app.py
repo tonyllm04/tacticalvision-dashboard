@@ -419,6 +419,37 @@ if not st.session_state.processed:
 
                     json_data = response.json()
 
+                    # --- GESTIÓN DE POLLING PARA API ASÍNCRONA (task_id) ---
+                    if isinstance(json_data, dict) and 'task_id' in json_data:
+                        task_id = json_data['task_id']
+                        st.write(f"2. Tarea registrada con ID: `{task_id}`. Esperando procesamiento...")
+                        
+                        STATUS_URL = f"{BASE_URL}/status/{task_id}" # Ajusta esta ruta si tu endpoint de status es /tarea/{task_id} o /resultado/{task_id}
+                        
+                        max_intentos = 120  # 10 minutos máximo (120 * 5s)
+                        for _ in range(max_intentos):
+                            time.sleep(5)
+                            res_status = requests.get(STATUS_URL, headers=headers)
+                            if res_status.status_code == 200:
+                                status_data = res_status.json()
+                                
+                                # Si devuelve directamente la lista de registros
+                                if isinstance(status_data, list):
+                                    json_data = status_data
+                                    break
+                                # Si devuelve un dict de estado
+                                elif isinstance(status_data, dict):
+                                    estado = status_data.get('status', '').lower()
+                                    if estado in ['completed', 'finished', 'success', 'done']:
+                                        json_data = status_data.get('result', status_data.get('data', status_data))
+                                        break
+                                    elif estado in ['failed', 'error']:
+                                        st.error(f"Error en la tarea remota: {status_data.get('error')}")
+                                        st.stop()
+                        else:
+                            st.error("Tiempo de espera agotado para el procesamiento del vídeo.")
+                            st.stop()
+
                     # 1. Validación e ingesta del JSON
                     if isinstance(json_data, dict):
                         if 'error' in json_data or 'detail' in json_data:
@@ -441,7 +472,6 @@ if not st.session_state.processed:
                     gc.collect()
 
                     # 2. RENOMBRADO FLEXIBLE Y NORMALIZACIÓN DE COLUMNAS
-                    # Mapeo de múltiples posibles nombres que pueda enviar el backend
                     column_map = {
                         'id_jugador': 'id', 'player_id': 'id', 'track_id': 'id',
                         'rol_equipo': 'team', 'equipo': 'team', 'team_name': 'team',
@@ -450,9 +480,8 @@ if not st.session_state.processed:
                     }
                     raw_df = raw_df.rename(columns=column_map)
 
-                    # Verificar presencia de las columnas 'x' e 'y' requeridas
                     if 'x' not in raw_df.columns or 'y' not in raw_df.columns:
-                        st.error(f"No se encontraron las coordenadas 'x' e 'y'. Columnas recibidas del backend: {list(raw_df.columns)}")
+                        st.error(f"No se encontraron las coordenadas 'x' e 'y'. Columnas recibidas: {list(raw_df.columns)}")
                         st.stop()
 
                     if 'id' not in raw_df.columns:
@@ -493,23 +522,17 @@ if not st.session_state.processed:
                     max_x = raw_df['x'].max()
                     max_y = raw_df['y'].max()
 
-                    # Caso A: Viene normalizado entre 0.0 y 1.0 (Homografía porcentual)
                     if max_x <= 1.0 and max_y <= 1.0 and max_x > 0:
                         raw_df['x'] = raw_df['x'] * FIELD_LENGTH
                         raw_df['y'] = raw_df['y'] * FIELD_WIDTH
-
-                    # Caso B: Viene en píxeles de la imagen (ej. 1920x1080)
                     elif max_x > FIELD_LENGTH or max_y > FIELD_WIDTH:
                         raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
                         raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
-
-                    # Caso C: Viene en metros comprimidos/incompletos
                     elif max_x < FIELD_LENGTH and max_x > 1.0:
                         raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
                         if max_y > 0:
                             raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
 
-                    # Limitar estrictamente a las líneas del terreno de juego
                     raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
                     raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
