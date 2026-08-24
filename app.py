@@ -586,19 +586,20 @@ if not st.session_state.processed:
             st.code(st.session_state.pipeline_error)
 
     else:
-        # Cargar variables guardadas en sesión
-        home_team = st.session_state.home_team
-        away_team = st.session_state.away_team
-        home_color = st.session_state.home_color
-        away_color = st.session_state.away_color
-        df = st.session_state.df
-        metrics = st.session_state.metrics
+        # 🟢 CONTROL DE ESTADO: Verificar si los datos realmente existen en sesión
+        if not st.session_state.get('processed', False):
+            st.info("👋 Selecciona un archivo de vídeo y pulsa en iniciar el análisis para comenzar.")
+            st.stop()
 
-        decision_debug = st.session_state.metrics.get(
-            'decision_debug',
-            []
-        )
+        # Cargar variables guardadas en sesión de forma segura
+        home_team = st.session_state.get('home_team', 'Equipo Local')
+        away_team = st.session_state.get('away_team', 'Equipo Visitante')
+        home_color = st.session_state.get('home_color', '#10b981')
+        away_color = st.session_state.get('away_color', '#f43f5e')
+        df = st.session_state.get('df', pd.DataFrame())
+        metrics = st.session_state.get('metrics', {})
 
+        decision_debug = metrics.get('decision_debug', [])
         debug_distancias = metrics.get('distancias_debug', pd.DataFrame())
         decision_df = metrics.get('decision_df', pd.DataFrame())
         ramas_df = metrics.get('ramas_df', pd.DataFrame())
