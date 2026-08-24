@@ -144,12 +144,16 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     players['dy'] = players.groupby('id')['y'].diff()
     players['distancia_px'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
-    UMBRAL_SALTO = 30.0
-    UMBRAL_RUIDO = 0.8
+    # Cambiar esto dentro de compute_distances_and_metrics:
+    UMBRAL_SALTO = 8.0   # En metros por frame (evita saltos por falsas detecciones)
+    UMBRAL_RUIDO = 0.05  # En metros (ignora micropasos o temblor de la detección)
 
     players.loc[players['distancia_px'] > UMBRAL_SALTO, 'distancia_px'] = 0.0
     players.loc[players['distancia_px'] < UMBRAL_RUIDO, 'distancia_px'] = 0.0
     players['distancia_px'] = players['distancia_px'].fillna(0.0)
+
+    # Al estar ya en metros (0-105, 0-68), 1 unidad = 1 metro:
+    players['distancia_m'] = players['distancia_px']
 
     K_PIXELS_A_METROS = 0.25
     FRAME_STRIDE = 3
@@ -485,7 +489,9 @@ if not st.session_state.processed:
 
                     gc.collect()
 
-                    # Adaptar nombres a la estructura de la app
+                    # ==============================================================================
+                    # BLOQUE CORREGIDO DE PROCESAMIENTO Y ESCALADO A METROS (105x68)
+                    # ==============================================================================
                     raw_df = raw_df.rename(columns={
                         'id_jugador': 'id',
                         'rol_equipo': 'team',
@@ -509,36 +515,38 @@ if not st.session_state.processed:
                                 'balon_x': 'x',
                                 'balon_y': 'y'
                             })
-
                             ball_rows['id'] = 9999
                             ball_rows['team'] = 'ball'
                             ball_rows['class'] = 'ball'
                             ball_rows['bbox'] = 'ball'
                             ball_rows['balon_x'] = np.nan
                             ball_rows['balon_y'] = np.nan
-
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # 2. NORMALIZACIÓN PÍXELES -> METROS (105x68)
+                    # 2. NORMALIZACIÓN Y ESCALADO A METROS REALES (105m x 68m)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
-                    # Asegurar tipo numérico
                     raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0)
                     raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0)
 
-                    # Mapeo proyectivo/escalado simple si no viene de vista de pájaro homográfica
-                    max_x_px = raw_df['x'].max()
-                    max_y_px = raw_df['y'].max()
+                    # Detectar el rango actual de coordenadas
+                    max_x = raw_df['x'].max()
+                    max_y = raw_df['y'].max()
 
-                    # Si los valores exceden 105, significa que vienen en resolución de pantalla (píxeles)
-                    if max_x_px > FIELD_LENGTH:
-                        raw_df['x'] = (raw_df['x'] / (max_x_px if max_x_px > 0 else 1920.0)) * FIELD_LENGTH
+                    # Si los datos vienen en píxeles de cámara (ej. 1920x1080 o 1280x720)
+                    if max_x > 105.0 or max_y > 68.0:
+                        ref_x = max_x if max_x > 105.0 else 1920.0
+                        ref_y = max_y if max_y > 68.0 else 1080.0
+                        raw_df['x'] = (raw_df['x'] / ref_x) * FIELD_LENGTH
+                        raw_df['y'] = (raw_df['y'] / ref_y) * FIELD_WIDTH
+                    else:
+                        # Si las coordenadas venían comprimidas en una escala pequeña (ej. 0..30)
+                        if max_x > 0 and max_x < 50.0:
+                            raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
+                        if max_y > 0 and max_y < 35.0:
+                            raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
 
-                    if max_y_px > FIELD_WIDTH:
-                        raw_df['y'] = (raw_df['y'] / (max_y_px if max_y_px > 0 else 1080.0)) * FIELD_WIDTH
-
-                    # Recortar estrictamente a los límites del campo
                     raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
                     raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
