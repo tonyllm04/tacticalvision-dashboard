@@ -72,7 +72,7 @@ st.markdown("""
 def calcular_distribucion_tercios(df, home_team, away_team):
     df_jugadores = df[df['class'] == 'player'].copy()
     
-    # Nos aseguramos de filtrar solo coordenadas dentro de los 105m del campo
+    # Coordenadas X en rango métrico real 0.0 a 105.0 metros
     home_x = df_jugadores[df_jugadores['team'] == 'home']['x']
     away_x = df_jugadores[df_jugadores['team'] == 'away']['x']
     
@@ -88,7 +88,6 @@ def calcular_distribucion_tercios(df, home_team, away_team):
 
     def get_pcts_away(series):
         if len(series) == 0: return [0, 0, 0]
-        # Para el visitante, si ataca en sentido contrario:
         defensivo = (series > TERCIO_2).mean() * 100
         medio = ((series >= TERCIO_1) & (series <= TERCIO_2)).mean() * 100
         ofensivo = (series < TERCIO_1).mean() * 100
@@ -146,7 +145,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     K_PIXELS_A_METROS = 0.25
     FRAME_STRIDE = 3
 
-    players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
+    #players['distancia_m'] = players['distancia_px'] * K_PIXELS_A_METROS * FRAME_STRIDE
+    players['distancia_m'] = players['distancia_px']
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
@@ -414,38 +414,18 @@ if not st.session_state.processed:
                     response = requests.post(INIT_URL, files=files, headers=headers, timeout=60)
 
                     if response.status_code != 200:
-                        st.error(f"Error en backend ({response.status_code}): {response.text}")
+                        st.error(f"Error backend: {response.text}")
                         st.stop()
 
-                    task_id = response.json().get("task_id")
-                    st.write("2. Vídeo recibido. Procesando YOLOv8 e histogramas en backend local...")
-
-                    status_url = f"{BASE_URL}/estado/{task_id}"
-                    finished = False
-
-                    with st.spinner("Procesando fotogramas... Esto puede tardar unos minutos."):
-                        while not finished:
-                            time.sleep(4)
-                            res_status = requests.get(status_url, headers=headers).json()
-                            
-                            if res_status.get("status") == "completed":
-                                raw_df = pd.DataFrame(res_status["data"])
-                                finished = True
-                            elif res_status.get("status") == "error":
-                                st.error(f"Error durante el procesamiento: {res_status.get('message')}")
-                                st.stop()
-
-                    st.write("3. Extracción de frames y calibración completada con éxito.")
+                    raw_df = pd.DataFrame(response.json())
 
                     if raw_df.empty:
-                        st.error("El backend devolvió un conjunto de datos vacío.")
+                        st.error("El backend devolvió un DataFrame vacío.")
                         st.stop()
-
-                    st.session_state.debug_csv_columns = list(raw_df.columns)
-                    st.session_state.debug_csv_head = raw_df.head().to_dict()
 
                     gc.collect()
 
+                    # 1. Renombrar columnas
                     raw_df = raw_df.rename(columns={
                         'id_jugador': 'id',
                         'rol_equipo': 'team',
@@ -455,6 +435,7 @@ if not st.session_state.processed:
 
                     raw_df['class'] = 'player'
 
+                    # 2. Extraer y procesar filas de balón
                     if 'balon_x' in raw_df.columns and 'balon_y' in raw_df.columns:
                         ball_rows = raw_df[
                             (raw_df['balon_x'].notna()) &
@@ -464,19 +445,15 @@ if not st.session_state.processed:
                         ][['frame', 'balon_x', 'balon_y']].drop_duplicates()
 
                         if not ball_rows.empty:
-                            ball_rows = ball_rows.rename(columns={
-                                'balon_x': 'x',
-                                'balon_y': 'y'
-                            })
+                            ball_rows = ball_rows.rename(columns={'balon_x': 'x', 'balon_y': 'y'})
                             ball_rows['id'] = 9999
                             ball_rows['team'] = 'ball'
                             ball_rows['class'] = 'ball'
                             ball_rows['bbox'] = 'ball'
-                            ball_rows['balon_x'] = np.nan
-                            ball_rows['balon_y'] = np.nan
+
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # --- NORMALIZACIÓN Y ESCALADO OBLIGATORIO DE X e Y ---
+                    # 3. ESCALADO MÉTRICO INTELIGENTE (0..105m x 0..68m)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
@@ -486,27 +463,27 @@ if not st.session_state.processed:
                     max_x = raw_df['x'].max()
                     max_y = raw_df['y'].max()
 
-                    # A) Caso Homografía Normalizada (Valores entre 0.0 y 1.0)
+                    # Caso A: Viene normalizado entre 0.0 y 1.0 (Homografía porcentual)
                     if max_x <= 1.0 and max_y <= 1.0 and max_x > 0:
                         raw_df['x'] = raw_df['x'] * FIELD_LENGTH
                         raw_df['y'] = raw_df['y'] * FIELD_WIDTH
 
-                    # B) Caso Píxeles de Cámara / Vídeo (ej. 1280x720 u 1920x1080)
+                    # Caso B: Viene en píxeles de la imagen (ej. 1920x1080)
                     elif max_x > FIELD_LENGTH or max_y > FIELD_WIDTH:
-                        # Determinamos la escala basada en X para conservar relación de aspecto
-                        scale_x = FIELD_LENGTH / max_x
-                        scale_y = FIELD_WIDTH / max_y
-                        
-                        raw_df['x'] = raw_df['x'] * scale_x
-                        raw_df['y'] = raw_df['y'] * scale_y
-
-                    # C) Caso Parcial / Rango acotado inesperado (ej. max_x entre 1.0 y 35.0)
-                    elif max_x < FIELD_LENGTH and max_x > 1.0:
-                        # Si las coordenadas vienen comprimidas, las expandimos proporcionalmente
                         raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
-                        raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH if max_y > 0 else raw_df['y']
+                        raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
 
-                    # Mapeo de nombres de equipo
+                    # Caso C: Viene en metros comprimidos/incompletos
+                    elif max_x < FIELD_LENGTH and max_x > 1.0:
+                        raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
+                        if max_y > 0:
+                            raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH
+
+                    # Limitar estrictamente a las líneas del terreno de juego
+                    raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
+                    raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
+
+                    # 4. Normalizar nombres de equipos
                     raw_df['team'] = raw_df['team'].replace({
                         'Equipo_1': 'home',
                         'Equipo_2': 'away',
@@ -514,7 +491,7 @@ if not st.session_state.processed:
                         'equipo_2': 'away'
                     })
 
-                    # AHORA SÍ: Llama a compute_distances_and_metrics con las coordenadas de 0 a 105m ya corregidas
+                    # 5. Calcular métricas finales
                     metrics = compute_distances_and_metrics(raw_df)
 
                     st.session_state.df = raw_df
