@@ -477,23 +477,26 @@ if not st.session_state.processed:
                     raw_df['x'] = pd.to_numeric(raw_df['x'], errors='coerce').fillna(0)
                     raw_df['y'] = pd.to_numeric(raw_df['y'], errors='coerce').fillna(0)
 
-                    # 1. DETECCIÓN Y ESCALADO SEGÚN EL TIPO DE COORDENADAS
                     max_x = raw_df['x'].max()
                     max_y = raw_df['y'].max()
 
-                    # Caso A: Las coordenadas vienen en píxeles de vídeo (p. ej. 1920x1080 o > 105m)
-                    if max_x > 105.0 or max_y > 68.0:
-                        ref_x = max_x if max_x > 105.0 else 1920.0
-                        # Mantenemos una escala única basada en X para conservar la proporción real
+                    # CASO 1: Coordenadas Normalizadas (0.0 a 1.0) desde la Homografía del Backend
+                    if max_x <= 1.0 and max_y <= 1.0 and max_x > 0:
+                        raw_df['x'] = raw_df['x'] * FIELD_LENGTH
+                        raw_df['y'] = raw_df['y'] * FIELD_WIDTH
+
+                    # CASO 2: Coordenadas en Píxeles de Vídeo (ej. 1920x1080 o resolución original)
+                    elif max_x > FIELD_LENGTH or max_y > FIELD_WIDTH:
+                        ref_x = max_x if max_x > FIELD_LENGTH else 1920.0
                         scale_factor = FIELD_LENGTH / ref_x
                         raw_df['x'] = raw_df['x'] * scale_factor
                         raw_df['y'] = raw_df['y'] * scale_factor
 
-                    # Caso B: Si las coordenadas ya vienen calculadas en metros desde el backend (0 a 105)
-                    # No aplicamos ningún multiplicador ni división por max_x para no estirar clips parciales.
+                    # CASO 3: Ya vienen expresadas en metros reales (entre > 1.0 y <= 105.0)
+                    else:
+                        pass
 
-                    # 2. FILTRADO LIMPIO EN LUGAR DE CLIP()
-                    # Eliminamos detecciones fuera del campo sin "amontonarlas" en la línea de banda o fondo
+                    # Filtrar outliers sin arrastrar coordenadas a las bandas
                     valid_bounds = (
                         (raw_df['x'] >= 0) & (raw_df['x'] <= FIELD_LENGTH) &
                         (raw_df['y'] >= 0) & (raw_df['y'] <= FIELD_WIDTH)
