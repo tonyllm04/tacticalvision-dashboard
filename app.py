@@ -72,21 +72,26 @@ st.markdown("""
 def calcular_distribucion_tercios(df, home_team, away_team):
     df_jugadores = df[df['class'] == 'player'].copy()
     
+    # Nos aseguramos de filtrar solo coordenadas dentro de los 105m del campo
     home_x = df_jugadores[df_jugadores['team'] == 'home']['x']
     away_x = df_jugadores[df_jugadores['team'] == 'away']['x']
     
+    TERCIO_1 = 105.0 / 3.0  # 35.0 m
+    TERCIO_2 = TERCIO_1 * 2  # 70.0 m
+
     def get_pcts_home(series):
         if len(series) == 0: return [0, 0, 0]
-        defensivo = (series < 35).mean() * 100
-        medio = ((series >= 35) & (series <= 70)).mean() * 100
-        ofensivo = (series > 70).mean() * 100
+        defensivo = (series < TERCIO_1).mean() * 100
+        medio = ((series >= TERCIO_1) & (series <= TERCIO_2)).mean() * 100
+        ofensivo = (series > TERCIO_2).mean() * 100
         return [round(defensivo), round(medio), round(ofensivo)]
 
     def get_pcts_away(series):
         if len(series) == 0: return [0, 0, 0]
-        defensivo = (series > 70).mean() * 100
-        medio = ((series >= 35) & (series <= 70)).mean() * 100
-        ofensivo = (series < 35).mean() * 100
+        # Para el visitante, si ataca en sentido contrario:
+        defensivo = (series > TERCIO_2).mean() * 100
+        medio = ((series >= TERCIO_1) & (series <= TERCIO_2)).mean() * 100
+        ofensivo = (series < TERCIO_1).mean() * 100
         return [round(defensivo), round(medio), round(ofensivo)]
 
     home_pcts = get_pcts_home(home_x)
@@ -471,6 +476,7 @@ if not st.session_state.processed:
                             ball_rows['balon_y'] = np.nan
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
+                    # --- NORMALIZACIÓN Y ESCALADO OBLIGATORIO DE X e Y ---
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
@@ -480,30 +486,27 @@ if not st.session_state.processed:
                     max_x = raw_df['x'].max()
                     max_y = raw_df['y'].max()
 
-                    # CASO 1: Coordenadas Normalizadas (0.0 a 1.0) desde la Homografía del Backend
+                    # A) Caso Homografía Normalizada (Valores entre 0.0 y 1.0)
                     if max_x <= 1.0 and max_y <= 1.0 and max_x > 0:
                         raw_df['x'] = raw_df['x'] * FIELD_LENGTH
                         raw_df['y'] = raw_df['y'] * FIELD_WIDTH
 
-                    # CASO 2: Coordenadas en Píxeles de Vídeo (ej. 1920x1080 o resolución original)
+                    # B) Caso Píxeles de Cámara / Vídeo (ej. 1280x720 u 1920x1080)
                     elif max_x > FIELD_LENGTH or max_y > FIELD_WIDTH:
-                        ref_x = max_x if max_x > FIELD_LENGTH else 1920.0
-                        scale_factor = FIELD_LENGTH / ref_x
-                        raw_df['x'] = raw_df['x'] * scale_factor
-                        raw_df['y'] = raw_df['y'] * scale_factor
+                        # Determinamos la escala basada en X para conservar relación de aspecto
+                        scale_x = FIELD_LENGTH / max_x
+                        scale_y = FIELD_WIDTH / max_y
+                        
+                        raw_df['x'] = raw_df['x'] * scale_x
+                        raw_df['y'] = raw_df['y'] * scale_y
 
-                    # CASO 3: Ya vienen expresadas en metros reales (entre > 1.0 y <= 105.0)
-                    else:
-                        pass
+                    # C) Caso Parcial / Rango acotado inesperado (ej. max_x entre 1.0 y 35.0)
+                    elif max_x < FIELD_LENGTH and max_x > 1.0:
+                        # Si las coordenadas vienen comprimidas, las expandimos proporcionalmente
+                        raw_df['x'] = (raw_df['x'] / max_x) * FIELD_LENGTH
+                        raw_df['y'] = (raw_df['y'] / max_y) * FIELD_WIDTH if max_y > 0 else raw_df['y']
 
-                    # Filtrar outliers sin arrastrar coordenadas a las bandas
-                    valid_bounds = (
-                        (raw_df['x'] >= 0) & (raw_df['x'] <= FIELD_LENGTH) &
-                        (raw_df['y'] >= 0) & (raw_df['y'] <= FIELD_WIDTH)
-                    )
-                    raw_df = raw_df[valid_bounds].copy()
-
-                    # 3. MAPEO DE EQUIPOS
+                    # Mapeo de nombres de equipo
                     raw_df['team'] = raw_df['team'].replace({
                         'Equipo_1': 'home',
                         'Equipo_2': 'away',
@@ -511,6 +514,7 @@ if not st.session_state.processed:
                         'equipo_2': 'away'
                     })
 
+                    # AHORA SÍ: Llama a compute_distances_and_metrics con las coordenadas de 0 a 105m ya corregidas
                     metrics = compute_distances_and_metrics(raw_df)
 
                     st.session_state.df = raw_df
