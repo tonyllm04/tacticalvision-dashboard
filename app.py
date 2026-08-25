@@ -380,9 +380,11 @@ if not st.session_state.processed:
         
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
-            home_team_input = st.text_input("Equipo Local (Principal)", "C.F. Damm")
+            home_team_input = st.text_input("Equipo 1", "C.F. Damm")
+            home_color_input = st.color_picker("Color Camiseta Equipo 1", "#10b981")
         with sub_col2:
-            away_team_input = st.text_input("Equipo Rival (Visitante)", "U.E. Sant Andreu")
+            away_team_input = st.text_input("Equipo 2", "U.E. Sant Andreu")
+            away_color_input = st.color_picker("Color Camiseta Equipo 2", "#f43f5e")
 
     with col_main_right:
         st.markdown("### Metodología de Análisis")
@@ -398,8 +400,8 @@ if not st.session_state.processed:
         else:
             st.session_state.home_team = home_team_input
             st.session_state.away_team = away_team_input
-            st.session_state.home_color = "#10b981"  # Verde Esmeralda
-            st.session_state.away_color = "#f43f5e"  # Rosa Coral
+            st.session_state.home_color = home_color_input
+            st.session_state.away_color = away_color_input
             
             with st.status("Procesando vídeo en el servidor local de análisis...", expanded=True) as status:
                 try:
@@ -581,8 +583,22 @@ else:
     metrics = st.session_state.metrics
 
     # Encabezado principal del Informe Telemétrico
-    st.title("TacticalVision")
-    st.caption(f"Informe Telemétrico Activo: **{home_team}** vs **{away_team}**")
+    col_title, col_invert = st.columns([3, 1])
+    with col_title:
+        st.title("TacticalVision")
+        st.caption(f"Informe Telemétrico Activo: **{home_team}** vs **{away_team}**")
+    with col_invert:
+        st.write("##")
+        if st.button("🔄 Invertir Equipos", use_container_width=True):
+            # Intercambiar nombres y colores en el estado de sesión
+            st.session_state.home_team, st.session_state.away_team = away_team, home_team
+            st.session_state.home_color, st.session_state.away_color = away_color, home_color
+            
+            # Recalcular únicamente la distribución por tercios con los nuevos nombres
+            st.session_state.metrics['zone_df'] = calcular_distribucion_tercios(
+                df, st.session_state.home_team, st.session_state.away_team
+            )
+            st.rerun()
 
     # MÉTRICAS CLAVE SUPERIORES
     dist_home = metrics['team_distances'].get('home', 0.0)
@@ -839,8 +855,8 @@ else:
             st.info("""
             **Guía de Interpretación Táctica para el Entrenador:**
 
-            * **Distancia Inter-Centroides:** Mide la separación en metros entre el centro de gravedad del equipo local y el del visitante.
-            * **Distribución Territorial por Tercios:** Identifica el porcentaje de presencia de cada plantilla en defensivo, medio y ofensivo.
+            * **Distancia Inter-Centroides:** Mide la separación en metros entre el centro de gravedad/punto medio del equipo local y el del visitante.
+            * **Distribución Territorial por Tercios:** Identifica el porcentaje de presencia de cada plantilla en los tercios de campo defensivo, medio y ofensivo.
             """)
 
     # Botón de reinicio
