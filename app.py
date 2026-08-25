@@ -12,6 +12,7 @@ import os
 import gc
 import requests
 import io
+from weasyprint import HTML
 
 from extraccion_datos import generar_dataset_deteccion
 import extraccion_datos
@@ -75,6 +76,154 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+import io
+from weasyprint import HTML
+
+def generar_pdf_informe(home_team, away_team, metrics):
+    """
+    Genera un informe PDF profesional a partir de las métricas calculadas.
+    """
+    poss_home = metrics.get('poss_home', 0)
+    poss_away = metrics.get('poss_away', 0)
+    dist_home = metrics['team_distances'].get('home', 0.0)
+    dist_away = metrics['team_distances'].get('away', 0.0)
+    avg_inter = metrics['inter_df']['inter_distance'].mean()
+
+    # Extraer filas de la tabla de distribución territorial
+    zone_df = metrics.get('zone_df', pd.DataFrame())
+    filas_tercios = ""
+    for _, row in zone_df.iterrows():
+        filas_tercios += f"""
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">{row['Tercio del Campo']}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #10b981;">{row[f'{home_team} (%)']}%</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #f43f5e;">{row[f'{away_team} (%)']}%</td>
+        </tr>
+        """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            @page {{
+                size: A4;
+                margin: 15mm 12mm;
+                background-color: #ffffff;
+            }}
+            body {{
+                font-family: Arial, sans-serif;
+                color: #0f172a;
+                margin: 0;
+                padding: 0;
+            }}
+            .header {{
+                background-color: #0f172a;
+                color: #ffffff;
+                padding: 20px;
+                border-radius: 8px;
+                margin-bottom: 20px;
+            }}
+            .header h1 {{
+                margin: 0;
+                font-size: 24px;
+                color: #10b981;
+            }}
+            .header p {{
+                margin: 5px 0 0 0;
+                font-size: 14px;
+                color: #94a3b8;
+            }}
+            .grid {{
+                display: table;
+                width: 100%;
+                margin-bottom: 20px;
+            }}
+            .card {{
+                display: table-cell;
+                width: 30%;
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                padding: 12px;
+                text-align: center;
+            }}
+            .card-title {{
+                font-size: 11px;
+                text-transform: uppercase;
+                color: #64748b;
+                margin-bottom: 4px;
+            }}
+            .card-value {{
+                font-size: 20px;
+                font-weight: bold;
+                color: #0f172a;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 15px;
+            }}
+            th {{
+                background-color: #0f172a;
+                color: #ffffff;
+                padding: 10px;
+                text-align: left;
+                font-size: 12px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>TacticalVision — Informe Telemétrico</h1>
+            <p>Partido: <strong>{home_team}</strong> vs <strong>{away_team}</strong></p>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Posesión {home_team}</div>
+                <div class="card-value" style="color: #10b981;">{poss_home}%</div>
+            </div>
+            <div class="card" style="width: 5%;"></div>
+            <div class="card">
+                <div class="card-title">Posesión {away_team}</div>
+                <div class="card-value" style="color: #f43f5e;">{poss_away}%</div>
+            </div>
+            <div class="card" style="width: 5%;"></div>
+            <div class="card">
+                <div class="card-title">Distancia Inter-Centroides</div>
+                <div class="card-value">{avg_inter:.1f} m</div>
+            </div>
+        </div>
+
+        <h3 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 4px;">Rendimiento Físico</h3>
+        <p><strong>Distancia Recorrida Total ({home_team}):</strong> {dist_home:.1f} metros</p>
+        <p><strong>Distancia Recorrida Total ({away_team}):</strong> {dist_away:.1f} metros</p>
+
+        <h3 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin-top: 25px;">Distribución Territorial por Tercios</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Tercio del Campo</th>
+                    <th style="text-align: center;">{home_team} (%)</th>
+                    <th style="text-align: center;">{away_team} (%)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {filas_tercios}
+            </tbody>
+        </table>
+    </body>
+    </html>
+    """
+
+    # Convertir el HTML a PDF en memoria
+    pdf_bytes = io.BytesIO()
+    HTML(string=html_content).write_pdf(pdf_bytes)
+    pdf_bytes.seek(0)
+    return pdf_bytes
 
 
 def calcular_distribucion_tercios(df, home_team, away_team):
@@ -859,9 +1008,25 @@ else:
             * **Distribución Territorial por Tercios:** Identifica el porcentaje de presencia de cada plantilla en los tercios de campo defensivo, medio y ofensivo.
             """)
 
-    # Botón de reinicio
+    # --------------------------------------------------------------------------
+    # ACCIONES FINALES Y EXPORTACIÓN
+    # --------------------------------------------------------------------------
     st.markdown("---")
-    col_reset_btn, _ = st.columns([1, 2])
+    
+    # Generar los datos del PDF antes de renderizar el botón
+    pdf_data = generar_pdf_informe(home_team, away_team, metrics)
+    
+    col_pdf_btn, col_reset_btn = st.columns(2)
+    
+    with col_pdf_btn:
+        st.download_button(
+            label="Descargar Informe PDF",
+            data=pdf_data,
+            file_name=f"Informe_Táctico_{home_team}_vs_{away_team}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+
     with col_reset_btn:
         if st.button("Cargar Nuevo Vídeo / Reiniciar", use_container_width=True):
             st.session_state.processed = False
