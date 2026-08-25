@@ -12,7 +12,10 @@ import os
 import gc
 import requests
 import io
-from weasyprint import HTML
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 from extraccion_datos import generar_dataset_deteccion
 import extraccion_datos
@@ -77,153 +80,120 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-import io
-from weasyprint import HTML
-
 def generar_pdf_informe(home_team, away_team, metrics):
     """
-    Genera un informe PDF profesional a partir de las métricas calculadas.
+    Genera un informe PDF usando ReportLab (compatible con Streamlit Cloud).
     """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
+
+    styles = getSampleStyleSheet()
+    
+    # Estilos personalizados
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=20,
+        textColor=colors.HexColor("#10b981"),
+        spaceAfter=4
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSubtitle',
+        parent=styles['Normal'],
+        fontSize=11,
+        textColor=colors.HexColor("#64748b"),
+        spaceAfter=15
+    )
+    section_style = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=colors.HexColor("#0f172a"),
+        spaceBefore=12,
+        spaceAfter=8
+    )
+
+    story = []
+
+    # Encabezado
+    story.append(Paragraph("TacticalVision — Informe Telemétrico", title_style))
+    story.append(Paragraph(f"<b>Partido:</b> {home_team} vs {away_team}", subtitle_style))
+    story.append(Spacer(1, 10))
+
+    # Obtener Métricas
     poss_home = metrics.get('poss_home', 0)
     poss_away = metrics.get('poss_away', 0)
     dist_home = metrics['team_distances'].get('home', 0.0)
     dist_away = metrics['team_distances'].get('away', 0.0)
     avg_inter = metrics['inter_df']['inter_distance'].mean()
 
-    # Extraer filas de la tabla de distribución territorial
+    # Resumen de KPIs (Tabla)
+    kpi_data = [
+        [f"Posesión {home_team}", f"Posesión {away_team}", "Dist. Inter-Centroides"],
+        [f"{poss_home}%", f"{poss_away}%", f"{avg_inter:.1f} m"]
+    ]
+    
+    kpi_table = Table(kpi_data, colWidths=[170, 170, 170])
+    kpi_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TEXTCOLOR', (0, 0), (0, 1), colors.HexColor("#10b981")),
+        ('TEXTCOLOR', (1, 0), (1, 1), colors.HexColor("#f43f5e")),
+        ('TEXTCOLOR', (2, 0), (2, 1), colors.HexColor("#0f172a")),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 1), (-1, 1), 16),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 15))
+
+    # Rendimiento Físico
+    story.append(Paragraph("Rendimiento Físico", section_style))
+    story.append(Paragraph(f"• <b>Distancia Recorrida Total ({home_team}):</b> {dist_home:.1f} metros", styles['Normal']))
+    story.append(Paragraph(f"• <b>Distancia Recorrida Total ({away_team}):</b> {dist_away:.1f} metros", styles['Normal']))
+    story.append(Spacer(1, 15))
+
+    # Distribución Territorial por Tercios
+    story.append(Paragraph("Distribución Territorial del Control de Juego", section_style))
     zone_df = metrics.get('zone_df', pd.DataFrame())
-    filas_tercios = ""
-    for _, row in zone_df.iterrows():
-        filas_tercios += f"""
-        <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">{row['Tercio del Campo']}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #10b981;">{row[f'{home_team} (%)']}%</td>
-            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #f43f5e;">{row[f'{away_team} (%)']}%</td>
-        </tr>
-        """
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            @page {{
-                size: A4;
-                margin: 15mm 12mm;
-                background-color: #ffffff;
-            }}
-            body {{
-                font-family: Arial, sans-serif;
-                color: #0f172a;
-                margin: 0;
-                padding: 0;
-            }}
-            .header {{
-                background-color: #0f172a;
-                color: #ffffff;
-                padding: 20px;
-                border-radius: 8px;
-                margin-bottom: 20px;
-            }}
-            .header h1 {{
-                margin: 0;
-                font-size: 24px;
-                color: #10b981;
-            }}
-            .header p {{
-                margin: 5px 0 0 0;
-                font-size: 14px;
-                color: #94a3b8;
-            }}
-            .grid {{
-                display: table;
-                width: 100%;
-                margin-bottom: 20px;
-            }}
-            .card {{
-                display: table-cell;
-                width: 30%;
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 12px;
-                text-align: center;
-            }}
-            .card-title {{
-                font-size: 11px;
-                text-transform: uppercase;
-                color: #64748b;
-                margin-bottom: 4px;
-            }}
-            .card-value {{
-                font-size: 20px;
-                font-weight: bold;
-                color: #0f172a;
-            }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 15px;
-            }}
-            th {{
-                background-color: #0f172a;
-                color: #ffffff;
-                padding: 10px;
-                text-align: left;
-                font-size: 12px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>TacticalVision — Informe Telemétrico</h1>
-            <p>Partido: <strong>{home_team}</strong> vs <strong>{away_team}</strong></p>
-        </div>
+    if not zone_df.empty:
+        tabla_data = [["Tercio del Campo", f"{home_team} (%)", f"{away_team} (%)"]]
+        for _, row in zone_df.iterrows():
+            tabla_data.append([
+                str(row['Tercio del Campo']),
+                f"{row[f'{home_team} (%)']}%",
+                f"{row[f'{away_team} (%)']}%"
+            ])
 
-        <div class="grid">
-            <div class="card">
-                <div class="card-title">Posesión {home_team}</div>
-                <div class="card-value" style="color: #10b981;">{poss_home}%</div>
-            </div>
-            <div class="card" style="width: 5%;"></div>
-            <div class="card">
-                <div class="card-title">Posesión {away_team}</div>
-                <div class="card-value" style="color: #f43f5e;">{poss_away}%</div>
-            </div>
-            <div class="card" style="width: 5%;"></div>
-            <div class="card">
-                <div class="card-title">Distancia Inter-Centroides</div>
-                <div class="card-value">{avg_inter:.1f} m</div>
-            </div>
-        </div>
+        tabla_tercios = Table(tabla_data, colWidths=[210, 150, 150])
+        tabla_tercios.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(tabla_tercios)
 
-        <h3 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 4px;">Rendimiento Físico</h3>
-        <p><strong>Distancia Recorrida Total ({home_team}):</strong> {dist_home:.1f} metros</p>
-        <p><strong>Distancia Recorrida Total ({away_team}):</strong> {dist_away:.1f} metros</p>
-
-        <h3 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin-top: 25px;">Distribución Territorial por Tercios</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Tercio del Campo</th>
-                    <th style="text-align: center;">{home_team} (%)</th>
-                    <th style="text-align: center;">{away_team} (%)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {filas_tercios}
-            </tbody>
-        </table>
-    </body>
-    </html>
-    """
-
-    # Convertir el HTML a PDF en memoria
-    pdf_bytes = io.BytesIO()
-    HTML(string=html_content).write_pdf(pdf_bytes)
-    pdf_bytes.seek(0)
-    return pdf_bytes
+    # Construir PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 
 def calcular_distribucion_tercios(df, home_team, away_team):
