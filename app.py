@@ -87,36 +87,69 @@ def fig_to_image_buffer(fig):
     img_buf.seek(0)
     return img_buf
 
-def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heatmap=None, fig_2d_snapshot=None):
-    """
-    Genera un informe PDF completo con métricas, gráficos estáticos e instantánea 2D.
-    """
+def generar_figura_heatmap(df, tipo_equipo, home_team, away_team):
+    """Genera una figura estática de Matplotlib para un mapa de calor concreto."""
+    fig, ax = plt.subplots(figsize=(6, 4))
+    fig.patch.set_facecolor('#0f172a')
+    ax.set_facecolor('#1f7a1f')
+
+    # Campo
+    ax.add_patch(patches.Rectangle((0, 0), 105, 68, facecolor='#1f7a1f', edgecolor='white', lw=1.5))
+    ax.plot([52.5, 52.5], [0, 68], color='white', lw=1.5)
+    ax.add_patch(plt.Circle((52.5, 34), 9.15, fill=False, color='white', lw=1.5))
+    ax.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=1.5))
+    ax.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=1.5))
+
+    ax.set_xlim(0, 105)
+    ax.set_ylim(68, 0)
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    if tipo_equipo == 'home':
+        team_data = df[df['team'] == 'home']
+        color_theme = "mako"
+        titulo = f"Ocupación: {home_team}"
+    elif tipo_equipo == 'away':
+        team_data = df[df['team'] == 'away']
+        color_theme = "rocket"
+        titulo = f"Ocupación: {away_team}"
+    else:
+        ball_data = df[df['class'] == 'ball'].copy()
+        if not ball_data.empty:
+            ball_data['prev_x'] = ball_data['x'].shift(1)
+            ball_data['prev_y'] = ball_data['y'].shift(1)
+            ball_data['speed'] = np.sqrt((ball_data['x'] - ball_data['prev_x'])**2 + (ball_data['y'] - ball_data['prev_y'])**2)
+            team_data = ball_data[ball_data['speed'] > 0.15]
+        else:
+            team_data = pd.DataFrame()
+        color_theme = "flare"
+        titulo = "Zonas de Transición del Balón"
+
+    if not team_data.empty and len(team_data) > 5:
+        sns.kdeplot(
+            data=team_data, x='x', y='y', fill=True, cmap=color_theme,
+            alpha=0.6, bw_adjust=0.5, levels=30, thresh=0.02, ax=ax, zorder=3
+        )
+    ax.set_title(titulo, color='white', fontsize=10, pad=6)
+    plt.tight_layout()
+    return fig
+
+def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heat_home=None, fig_heat_away=None, fig_heat_ball=None, fig_2d_snapshot=None):
+    """Genera un informe PDF profesional de 2 páginas con métricas y visualizaciones."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=30,
-        leftMargin=30,
-        topMargin=30,
-        bottomMargin=30
+        buffer, pagesize=A4, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25
     )
 
     styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle(
-        'DocTitle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor("#10b981"), spaceAfter=2
-    )
-    subtitle_style = ParagraphStyle(
-        'DocSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor("#64748b"), spaceAfter=10
-    )
-    section_style = ParagraphStyle(
-        'SectionHeader', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor("#0f172a"), spaceBefore=10, spaceAfter=6
-    )
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor("#10b981"), spaceAfter=2)
+    subtitle_style = ParagraphStyle('DocSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor("#64748b"), spaceAfter=10)
+    section_style = ParagraphStyle('SectionHeader', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor("#0f172a"), spaceBefore=8, spaceAfter=6)
 
     story = []
 
-    # 1. ENCABEZADO Y KPIS
-    story.append(Paragraph("TacticalVision — Informe Telemétrico", title_style))
+    # ENCABEZADO Y KPIS
+    story.append(Paragraph("TacticalVision — Informe Telemétrico Completo", title_style))
     story.append(Paragraph(f"<b>Partido:</b> {home_team} vs {away_team}", subtitle_style))
 
     poss_home = metrics.get('poss_home', 0)
@@ -129,7 +162,7 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heatm
         [f"Posesión {home_team}", f"Posesión {away_team}", "Dist. Inter-Centroides"],
         [f"{poss_home}%", f"{poss_away}%", f"{avg_inter:.1f} m"]
     ]
-    kpi_table = Table(kpi_data, colWidths=[175, 175, 175])
+    kpi_table = Table(kpi_data, colWidths=[180, 180, 180])
     kpi_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -141,38 +174,45 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heatm
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 1), (-1, 1), 14),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(kpi_table)
     story.append(Spacer(1, 10))
 
-    # 2. EVOLUCIÓN DE DISTANCIA INTER-CENTROIDES
+    # EVOLUCIÓN INTER-CENTROIDES
     if fig_inter is not None:
         story.append(Paragraph("Evolución Táctica y Distancia Inter-Centroides", section_style))
-        img_buf = fig_to_image_buffer(fig_inter)
-        story.append(Image(img_buf, width=520, height=160))
+        story.append(Image(fig_to_image_buffer(fig_inter), width=540, height=150))
         story.append(Spacer(1, 10))
 
-    # 3. VISUALIZACIÓN ESPACIAL (MAPA DE CALOR + PLANO 2D SNAPSHOT)
-    if fig_heatmap is not None or fig_2d_snapshot is not None:
-        story.append(Paragraph("Visualización Espacial (Mapa de Calor & Snap 2D)", section_style))
-        cells = []
-        if fig_heatmap is not None:
-            cells.append(Image(fig_to_image_buffer(fig_heatmap), width=250, height=140))
-        if fig_2d_snapshot is not None:
-            cells.append(Image(fig_to_image_buffer(fig_2d_snapshot), width=250, height=140))
-        
-        if cells:
-            visual_table = Table([cells], colWidths=[260] * len(cells))
-            visual_table.setStyle(TableStyle([
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ]))
-            story.append(visual_table)
-            story.append(Spacer(1, 10))
+    # SNAPSHOT PLANO 2D
+    if fig_2d_snapshot is not None:
+        story.append(Paragraph("Instantánea del Plano Métrico 2D (Selección del Entrenador)", section_style))
+        story.append(Image(fig_to_image_buffer(fig_2d_snapshot), width=540, height=220))
+        story.append(Paragraph("<i>* Para reproducir la animación interactiva 2D fotograma a fotograma, utiliza la plataforma web.</i>", subtitle_style))
+        story.append(Spacer(1, 10))
 
-    # 4. TABLA DE DISTRIBUCIÓN TERRITORIAL Y RENDIMIENTO FÍSICO
+    # TRES MAPAS DE CALOR
+    story.append(Paragraph("Mapas de Densidad de Ocupación Terrenal (Equipos y Balón)", section_style))
+    heat_images = []
+    if fig_heat_home is not None:
+        heat_images.append(Image(fig_to_image_buffer(fig_heat_home), width=175, height=120))
+    if fig_heat_away is not None:
+        heat_images.append(Image(fig_to_image_buffer(fig_heat_away), width=175, height=120))
+    if fig_heat_ball is not None:
+        heat_images.append(Image(fig_to_image_buffer(fig_heat_ball), width=175, height=120))
+
+    if heat_images:
+        heat_table = Table([heat_images], colWidths=[180] * len(heat_images))
+        heat_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        story.append(heat_table)
+        story.append(Spacer(1, 10))
+
+    # DISTRIBUCIÓN TERRITORIAL Y MOCIONES
     story.append(Paragraph("Distribución Territorial y Rendimiento Físico", section_style))
     zone_df = metrics.get('zone_df', pd.DataFrame())
 
@@ -185,7 +225,7 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heatm
                 f"{row[f'{away_team} (%)']}%"
             ])
 
-        tabla_tercios = Table(tabla_data, colWidths=[220, 150, 150])
+        tabla_tercios = Table(tabla_data, colWidths=[240, 150, 150])
         tabla_tercios.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0f172a")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -198,15 +238,10 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heatm
         ]))
         story.append(tabla_tercios)
 
-    # 5. MOCIÓN FINAL Y NOTA 2D INTERACTIVO
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
     story.append(Paragraph(
         f"• <b>Distancia Total Recorrida {home_team}:</b> {dist_home:.1f} m | "
         f"<b>{away_team}:</b> {dist_away:.1f} m", styles['Normal']
-    ))
-    story.append(Paragraph(
-        "<i>* Nota: La interacción dinámica del plano 2D se gestiona a través de la plataforma web.</i>",
-        subtitle_style
     ))
 
     doc.build(story)
@@ -862,6 +897,9 @@ else:
 
             st.session_state.fig_2d_snapshot = fig
 
+            # Guardar captura exacta del frame seleccionado para el PDF
+            st.session_state.fig_2d_snapshot = fig
+
             st.pyplot(fig, clear_figure=True)
             
         with col_pedagogic:
@@ -1004,6 +1042,11 @@ else:
     # ACCIONES FINALES Y EXPORTACIÓN
     # --------------------------------------------------------------------------
     st.markdown("---")
+
+    # Generar dinámicamente los 3 mapas de calor para el informe en PDF
+    fig_heat_home = generar_figura_heatmap(df, 'home', home_team, away_team)
+    fig_heat_away = generar_figura_heatmap(df, 'away', home_team, away_team)
+    fig_heat_ball = generar_figura_heatmap(df, 'ball', home_team, away_team)
     
     # Botón de descarga recuperando las figuras del session_state
     pdf_data = generar_pdf_informe(
@@ -1011,20 +1054,27 @@ else:
         away_team=away_team,
         metrics=metrics,
         fig_inter=fig_lines,
-        fig_heatmap=st.session_state.get('fig_heatmap', None),
+        fig_heat_home=fig_heat_home,
+        fig_heat_away=fig_heat_away,
+        fig_heat_ball=fig_heat_ball,
         fig_2d_snapshot=st.session_state.get('fig_2d_snapshot', None)
     )
-    
+
+    # Cerrar las figuras de memoria para optimizar RAM
+    plt.close(fig_heat_home)
+    plt.close(fig_heat_away)
+    plt.close(fig_heat_ball)
+
     col_pdf_btn, col_reset_btn = st.columns(2)
     
     with col_pdf_btn:
         st.download_button(
-        label="Descargar Informe PDF Completo",
-        data=pdf_data,
-        file_name=f"Informe_Táctico_{home_team}_vs_{away_team}.pdf",
-        mime="application/pdf",
-        use_container_width=True
-    )
+            label="Descargar Informe PDF Completo",
+            data=pdf_data,
+            file_name=f"Informe_Táctico_{home_team}_vs_{away_team}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
 
     with col_reset_btn:
         if st.button("Cargar Nuevo Vídeo / Reiniciar", use_container_width=True):
