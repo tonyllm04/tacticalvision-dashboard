@@ -13,7 +13,7 @@ import gc
 import requests
 import io
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -80,67 +80,56 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def generar_pdf_informe(home_team, away_team, metrics):
+def fig_to_image_buffer(fig):
+    """Convierte una figura de Matplotlib a un búfer de memoria PNG para ReportLab."""
+    img_buf = io.BytesIO()
+    fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor())
+    img_buf.seek(0)
+    return img_buf
+
+def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heatmap=None, fig_2d_snapshot=None):
     """
-    Genera un informe PDF usando ReportLab (compatible con Streamlit Cloud).
+    Genera un informe PDF completo con métricas, gráficos estáticos e instantánea 2D.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=36,
-        bottomMargin=36
+        rightMargin=30,
+        leftMargin=30,
+        topMargin=30,
+        bottomMargin=30
     )
 
     styles = getSampleStyleSheet()
     
-    # Estilos personalizados
     title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontSize=20,
-        textColor=colors.HexColor("#10b981"),
-        spaceAfter=4
+        'DocTitle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor("#10b981"), spaceAfter=2
     )
     subtitle_style = ParagraphStyle(
-        'DocSubtitle',
-        parent=styles['Normal'],
-        fontSize=11,
-        textColor=colors.HexColor("#64748b"),
-        spaceAfter=15
+        'DocSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor("#64748b"), spaceAfter=10
     )
     section_style = ParagraphStyle(
-        'SectionHeader',
-        parent=styles['Heading2'],
-        fontSize=14,
-        textColor=colors.HexColor("#0f172a"),
-        spaceBefore=12,
-        spaceAfter=8
+        'SectionHeader', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor("#0f172a"), spaceBefore=10, spaceAfter=6
     )
 
     story = []
 
-    # Encabezado
+    # 1. ENCABEZADO Y KPIS
     story.append(Paragraph("TacticalVision — Informe Telemétrico", title_style))
     story.append(Paragraph(f"<b>Partido:</b> {home_team} vs {away_team}", subtitle_style))
-    story.append(Spacer(1, 10))
 
-    # Obtener Métricas
     poss_home = metrics.get('poss_home', 0)
     poss_away = metrics.get('poss_away', 0)
     dist_home = metrics['team_distances'].get('home', 0.0)
     dist_away = metrics['team_distances'].get('away', 0.0)
     avg_inter = metrics['inter_df']['inter_distance'].mean()
 
-    # Resumen de KPIs (Tabla)
     kpi_data = [
         [f"Posesión {home_team}", f"Posesión {away_team}", "Dist. Inter-Centroides"],
         [f"{poss_home}%", f"{poss_away}%", f"{avg_inter:.1f} m"]
     ]
-    
-    kpi_table = Table(kpi_data, colWidths=[170, 170, 170])
+    kpi_table = Table(kpi_data, colWidths=[175, 175, 175])
     kpi_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -148,24 +137,43 @@ def generar_pdf_informe(home_team, away_team, metrics):
         ('TEXTCOLOR', (1, 0), (1, 1), colors.HexColor("#f43f5e")),
         ('TEXTCOLOR', (2, 0), (2, 1), colors.HexColor("#0f172a")),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 1), (-1, 1), 16),
+        ('FONTSIZE', (0, 1), (-1, 1), 14),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(kpi_table)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 10))
 
-    # Rendimiento Físico
-    story.append(Paragraph("Rendimiento Físico", section_style))
-    story.append(Paragraph(f"• <b>Distancia Recorrida Total ({home_team}):</b> {dist_home:.1f} metros", styles['Normal']))
-    story.append(Paragraph(f"• <b>Distancia Recorrida Total ({away_team}):</b> {dist_away:.1f} metros", styles['Normal']))
-    story.append(Spacer(1, 15))
+    # 2. EVOLUCIÓN DE DISTANCIA INTER-CENTROIDES
+    if fig_inter is not None:
+        story.append(Paragraph("Evolución Táctica y Distancia Inter-Centroides", section_style))
+        img_buf = fig_to_image_buffer(fig_inter)
+        story.append(Image(img_buf, width=520, height=160))
+        story.append(Spacer(1, 10))
 
-    # Distribución Territorial por Tercios
-    story.append(Paragraph("Distribución Territorial del Control de Juego", section_style))
+    # 3. VISUALIZACIÓN ESPACIAL (MAPA DE CALOR + PLANO 2D SNAPSHOT)
+    if fig_heatmap is not None or fig_2d_snapshot is not None:
+        story.append(Paragraph("Visualización Espacial (Mapa de Calor & Snap 2D)", section_style))
+        cells = []
+        if fig_heatmap is not None:
+            cells.append(Image(fig_to_image_buffer(fig_heatmap), width=250, height=140))
+        if fig_2d_snapshot is not None:
+            cells.append(Image(fig_to_image_buffer(fig_2d_snapshot), width=250, height=140))
+        
+        if cells:
+            visual_table = Table([cells], colWidths=[260] * len(cells))
+            visual_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            story.append(visual_table)
+            story.append(Spacer(1, 10))
+
+    # 4. TABLA DE DISTRIBUCIÓN TERRITORIAL Y RENDIMIENTO FÍSICO
+    story.append(Paragraph("Distribución Territorial y Rendimiento Físico", section_style))
     zone_df = metrics.get('zone_df', pd.DataFrame())
 
     if not zone_df.empty:
@@ -177,7 +185,7 @@ def generar_pdf_informe(home_team, away_team, metrics):
                 f"{row[f'{away_team} (%)']}%"
             ])
 
-        tabla_tercios = Table(tabla_data, colWidths=[210, 150, 150])
+        tabla_tercios = Table(tabla_data, colWidths=[220, 150, 150])
         tabla_tercios.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0f172a")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -185,12 +193,22 @@ def generar_pdf_informe(home_team, away_team, metrics):
             ('ALIGN', (0, 0), (0, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
         ]))
         story.append(tabla_tercios)
 
-    # Construir PDF
+    # 5. MOCIÓN FINAL Y NOTA 2D INTERACTIVO
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(
+        f"• <b>Distancia Total Recorrida {home_team}:</b> {dist_home:.1f} m | "
+        f"<b>{away_team}:</b> {dist_away:.1f} m", styles['Normal']
+    ))
+    story.append(Paragraph(
+        "<i>* Nota: La interacción dinámica del plano 2D se gestiona a través de la plataforma web.</i>",
+        subtitle_style
+    ))
+
     doc.build(story)
     buffer.seek(0)
     return buffer
@@ -841,6 +859,9 @@ else:
                     pass
                     
             plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=False, facecolor='#1e293b')
+
+            st.session_state.fig_2d_snapshot = fig
+
             st.pyplot(fig, clear_figure=True)
             
         with col_pedagogic:
@@ -920,7 +941,8 @@ else:
                 )
             else:
                 st.warning("Datos insuficientes para generar el mapa de calor en esta categoría.")
-                
+
+            st.session_state.fig_heatmap = fig_heat
             st.pyplot(fig_heat, clear_figure=True)
             
         with col_heat_info:
@@ -983,19 +1005,26 @@ else:
     # --------------------------------------------------------------------------
     st.markdown("---")
     
-    # Generar los datos del PDF antes de renderizar el botón
-    pdf_data = generar_pdf_informe(home_team, away_team, metrics)
+    # Botón de descarga recuperando las figuras del session_state
+    pdf_data = generar_pdf_informe(
+        home_team=home_team,
+        away_team=away_team,
+        metrics=metrics,
+        fig_inter=fig_lines,
+        fig_heatmap=st.session_state.get('fig_heatmap', None),
+        fig_2d_snapshot=st.session_state.get('fig_2d_snapshot', None)
+    )
     
     col_pdf_btn, col_reset_btn = st.columns(2)
     
     with col_pdf_btn:
         st.download_button(
-            label="Descargar Informe PDF",
-            data=pdf_data,
-            file_name=f"Informe_Táctico_{home_team}_vs_{away_team}.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
+        label="Descargar Informe PDF Completo",
+        data=pdf_data,
+        file_name=f"Informe_Táctico_{home_team}_vs_{away_team}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
 
     with col_reset_btn:
         if st.button("Cargar Nuevo Vídeo / Reiniciar", use_container_width=True):
