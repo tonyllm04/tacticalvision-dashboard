@@ -134,8 +134,59 @@ def generar_figura_heatmap(df, tipo_equipo, home_team, away_team):
     plt.tight_layout()
     return fig
 
+def generar_figura_2d_snapshot(df, frame_id, home_team, away_team, home_color, away_color):
+    """Genera la captura del campo métrico 2D exactamente igual a la pestaña interactiva."""
+    fig, ax = plt.subplots(figsize=(10, 6.8))
+    fig.patch.set_facecolor('#0f172a')
+    ax.set_facecolor('#1f7a1f')
+
+    # Marcado de campo
+    ax.add_patch(patches.Rectangle((0, 0), 105, 68, facecolor='#1f7a1f', edgecolor='white', lw=2))
+    ax.plot([52.5, 52.5], [0, 68], color='white', lw=2)
+    ax.add_patch(plt.Circle((52.5, 34), 9.15, fill=False, color='white', lw=2))
+    ax.add_patch(patches.Rectangle((0, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=2))
+    ax.add_patch(patches.Rectangle((105-16.5, 13.84), 16.5, 40.32, fill=False, edgecolor='white', lw=2))
+
+    ax.set_xlim(-3, 108)
+    ax.set_ylim(68, 0)
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    frame_df = df[df['frame'] == frame_id]
+
+    # Jugadores Local y Visitante
+    home_players = frame_df[frame_df['team'] == 'home']
+    away_players = frame_df[frame_df['team'] == 'away']
+    ball_df = frame_df[frame_df['team'] == 'ball']
+
+    ax.scatter(home_players['x'], home_players['y'], color=home_color, s=90, edgecolor='white', lw=1.2, label=home_team, zorder=5)
+    ax.scatter(away_players['x'], away_players['y'], color=away_color, s=90, edgecolor='white', lw=1.2, label=away_team, zorder=5)
+
+    if not ball_df.empty:
+        ax.scatter(ball_df['x'], ball_df['y'], color='#fbbf24', s=90, edgecolor='black', lw=1.5, label="Balón", zorder=7)
+
+    # Centroides y Convex Hull
+    if not home_players.empty and not away_players.empty:
+        c_home_x, c_home_y = home_players['x'].mean(), home_players['y'].mean()
+        c_away_x, c_away_y = away_players['x'].mean(), away_players['y'].mean()
+        ax.scatter(c_home_x, c_home_y, color=home_color, s=250, marker='*', edgecolor='white', lw=1.5, zorder=8)
+        ax.scatter(c_away_x, c_away_y, color=away_color, s=250, marker='*', edgecolor='white', lw=1.5, zorder=8)
+        ax.plot([c_home_x, c_away_x], [c_home_y, c_away_y], color='#94a3b8', linestyle=':', lw=2, zorder=4)
+
+        if len(home_players) > 3:
+            try:
+                pts = home_players[['x', 'y']].values
+                hull = ConvexHull(pts)
+                for simplex in hull.simplices:
+                    ax.plot(pts[simplex, 0], pts[simplex, 1], color=home_color, linestyle='--', alpha=0.5, zorder=4)
+            except Exception:
+                pass
+
+    ax.set_title(f"Instantánea en Fotograma: {frame_id}", color='white', fontsize=11, pad=8)
+    plt.tight_layout()
+    return fig
+
 def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heat_home=None, fig_heat_away=None, fig_heat_ball=None, fig_2d_snapshot=None):
-    """Genera un informe PDF profesional de 2 páginas con métricas y visualizaciones."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25
@@ -143,12 +194,16 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heat_
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor("#10b981"), spaceAfter=2)
-    subtitle_style = ParagraphStyle('DocSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor("#64748b"), spaceAfter=10)
-    section_style = ParagraphStyle('SectionHeader', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor("#0f172a"), spaceBefore=8, spaceAfter=6)
+    subtitle_style = ParagraphStyle('DocSubtitle', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor("#64748b"), spaceAfter=10)
+    section_style = ParagraphStyle('SectionHeader', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor("#0f172a"), spaceBefore=12, spaceAfter=6)
+    desc_style = ParagraphStyle('TacticalDesc', parent=styles['Normal'], fontSize=8.5, textColor=colors.HexColor("#334155"), leading=11, spaceBefore=4, spaceAfter=8)
+    
+    # Estilo grande para la distancia total recorrida
+    physical_style = ParagraphStyle('PhysicalBig', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor("#0f172a"), leading=14, spaceBefore=10, spaceAfter=10)
 
     story = []
 
-    # ENCABEZADO Y KPIS
+    # 1. ENCABEZADO Y KPIS
     story.append(Paragraph("TacticalVision — Informe Telemétrico Completo", title_style))
     story.append(Paragraph(f"<b>Partido:</b> {home_team} vs {away_team}", subtitle_style))
 
@@ -178,41 +233,54 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heat_
         ('TOPPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(kpi_table)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 6))
 
-    # EVOLUCIÓN INTER-CENTROIDES
+    # 2. EVOLUCIÓN INTER-CENTROIDES Y EXPLICACIÓN
     if fig_inter is not None:
         story.append(Paragraph("Evolución Táctica y Distancia Inter-Centroides", section_style))
-        story.append(Image(fig_to_image_buffer(fig_inter), width=540, height=150))
-        story.append(Spacer(1, 10))
+        story.append(Image(fig_to_image_buffer(fig_inter), width=540, height=140))
+        
+        # Explicación táctica agregada debajo del gráfico
+        story.append(Paragraph(
+            "<b>Guía de Interpretación Táctica:</b> La Distancia Inter-Centroides mide la separación en metros entre el punto medio del equipo local y el visitante. "
+            "Una distancia reducida (<b>&lt; 20m</b>) indica una fase de alta presión, duelo concentrado o bloque defensivo denso. "
+            "Por el contrario, una distancia amplia (<b>&gt; 30m</b>) evidencia estiramiento entre líneas, replegue defensivo o una transición ofensiva limpia.",
+            desc_style
+        ))
+        story.append(Spacer(1, 6))
 
-    # SNAPSHOT PLANO 2D
+    # 3. INSTANTÁNEA PLANO 2D
     if fig_2d_snapshot is not None:
-        story.append(Paragraph("Instantánea del Plano Métrico 2D (Selección del Entrenador)", section_style))
-        story.append(Image(fig_to_image_buffer(fig_2d_snapshot), width=540, height=220))
-        story.append(Paragraph("<i>* Para reproducir la animación interactiva 2D fotograma a fotograma, utiliza la plataforma web.</i>", subtitle_style))
-        story.append(Spacer(1, 10))
+        story.append(Paragraph("Plano Métrico 2D (Instantánea de Fotograma Seleccionado)", section_style))
+        story.append(Image(fig_to_image_buffer(fig_2d_snapshot), width=540, height=210))
+        story.append(Paragraph(
+            "<i>* Nota sobre interactividad: Este documento PDF contiene una captura estática. Para consultar la simulación dinámica en movimiento y navegar libremente fotograma por fotograma, utiliza el visor interactivo de la plataforma web.</i>",
+            subtitle_style
+        ))
+        story.append(Spacer(1, 8))
 
-    # TRES MAPAS DE CALOR
-    story.append(Paragraph("Mapas de Densidad de Ocupación Terrenal (Equipos y Balón)", section_style))
-    heat_images = []
-    if fig_heat_home is not None:
-        heat_images.append(Image(fig_to_image_buffer(fig_heat_home), width=175, height=120))
-    if fig_heat_away is not None:
-        heat_images.append(Image(fig_to_image_buffer(fig_heat_away), width=175, height=120))
-    if fig_heat_ball is not None:
-        heat_images.append(Image(fig_to_image_buffer(fig_heat_ball), width=175, height=120))
+    # 4. MAPAS DE CALOR MÁS GRANDES (EN DISPOSICIÓN VERTICAL/TABLA AMPLIADA)
+    story.append(Paragraph("Mapas de Densidad de Ocupación Terrenal (KDE)", section_style))
+    
+    # Renderizado a 250px de ancho para mayor claridad
+    heat_home_img = Image(fig_to_image_buffer(fig_heat_home), width=260, height=170) if fig_heat_home else None
+    heat_away_img = Image(fig_to_image_buffer(fig_heat_away), width=260, height=170) if fig_heat_away else None
+    heat_ball_img = Image(fig_to_image_buffer(fig_heat_ball), width=260, height=170) if fig_heat_ball else None
 
-    if heat_images:
-        heat_table = Table([heat_images], colWidths=[180] * len(heat_images))
-        heat_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
-        story.append(heat_table)
-        story.append(Spacer(1, 10))
+    if heat_home_img and heat_away_img:
+        heat_table_1 = Table([[heat_home_img, heat_away_img]], colWidths=[270, 270])
+        heat_table_1.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+        story.append(heat_table_1)
 
-    # DISTRIBUCIÓN TERRITORIAL Y MOCIONES
+    if heat_ball_img:
+        story.append(Spacer(1, 4))
+        heat_table_2 = Table([[heat_ball_img]], colWidths=[540])
+        heat_table_2.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+        story.append(heat_table_2)
+
+    story.append(Spacer(1, 8))
+
+    # 5. DISTRIBUCIÓN TERRITORIAL Y DISTANCIA FÍSICA AMPLIADA
     story.append(Paragraph("Distribución Territorial y Rendimiento Físico", section_style))
     zone_df = metrics.get('zone_df', pd.DataFrame())
 
@@ -238,10 +306,12 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heat_
         ]))
         story.append(tabla_tercios)
 
-    story.append(Spacer(1, 8))
+    # Texto destacado y más grande para el volumen físico
     story.append(Paragraph(
-        f"• <b>Distancia Total Recorrida {home_team}:</b> {dist_home:.1f} m | "
-        f"<b>{away_team}:</b> {dist_away:.1f} m", styles['Normal']
+        f"<b>Rendimiento Físico Acumulado:</b><br/>"
+        f"• Distancia Total Recorrida <b>{home_team}</b>: <font color='#10b981'><b>{dist_home:.1f} m</b></font><br/>"
+        f"• Distancia Total Recorrida <b>{away_team}</b>: <font color='#f43f5e'><b>{dist_away:.1f} m</b></font>",
+        physical_style
     ))
 
     doc.build(story)
@@ -1047,8 +1117,12 @@ else:
     fig_heat_home = generar_figura_heatmap(df, 'home', home_team, away_team)
     fig_heat_away = generar_figura_heatmap(df, 'away', home_team, away_team)
     fig_heat_ball = generar_figura_heatmap(df, 'ball', home_team, away_team)
+
+    # Generar el plano 2D usando el frame seleccionado actualmente en el slider de la Pestaña 1
+    selected_frame_pdf = st.session_state.get('selected_frame', df['frame'].median())
+    fig_2d_snap = generar_figura_2d_snapshot(df, selected_frame_pdf, home_team, away_team, home_color, away_color)
     
-    # Botón de descarga recuperando las figuras del session_state
+    # Compilar el documento PDF
     pdf_data = generar_pdf_informe(
         home_team=home_team,
         away_team=away_team,
@@ -1057,13 +1131,14 @@ else:
         fig_heat_home=fig_heat_home,
         fig_heat_away=fig_heat_away,
         fig_heat_ball=fig_heat_ball,
-        fig_2d_snapshot=st.session_state.get('fig_2d_snapshot', None)
+        fig_2d_snapshot=fig_2d_snap
     )
 
-    # Cerrar las figuras de memoria para optimizar RAM
+    # Liberar memoria de matplotlib
     plt.close(fig_heat_home)
     plt.close(fig_heat_away)
     plt.close(fig_heat_ball)
+    plt.close(fig_2d_snap)
 
     col_pdf_btn, col_reset_btn = st.columns(2)
     
