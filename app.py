@@ -13,7 +13,7 @@ import gc
 import requests
 import io
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -259,7 +259,8 @@ def generar_pdf_informe(home_team, away_team, metrics, fig_inter=None, fig_heat_
         ))
         story.append(Spacer(1, 8))
 
-    # 4. MAPAS DE CALOR MÁS GRANDES (EN DISPOSICIÓN VERTICAL/TABLA AMPLIADA)
+    # 4. MAPAS DE CALOR (EN DISPOSICIÓN VERTICAL/TABLA AMPLIADA)
+    story.append(PageBreak())  # Salto de página
     story.append(Paragraph("Mapas de Densidad de Ocupación Terrenal (KDE)", section_style))
     
     # Renderizado a 250px de ancho para mayor claridad
