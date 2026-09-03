@@ -34,7 +34,6 @@ def extraer_torso_proporcional(frame, box):
     return None
 
 def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
-    # CORREGIDO: Cargar YOLOv8m (Medium) para mejor detección de objetos pequeños
     print(f"Cargando YOLOv8m para personas y balón...")
     model = YOLO("yolov8m.pt") 
 
@@ -54,7 +53,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     ultimo_balon_x, ultimo_balon_y = -1, -1
     frames_balon_desaparecido = 0
     
-    # CORREGIDO: Aumentar memoria a 15 frames (~0.5s de vídeo real) para no perder el rastro
     MAX_FRAMES_MEMORIA = 15
 
     try:
@@ -74,7 +72,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
             if processed_frames >= max_frames:
                 break
 
-            # CORREGIDO: Se sube imgsz a 1280 para dar más resolución al balón
             results = model.track(
                 source=frame, 
                 persist=True, 
@@ -101,7 +98,6 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         balon_detectado_este_frame = True
                         break
             
-            # En lugar de mantener bx, by estáticos:
             if balon_detectado_este_frame:
                 if ultimo_balon_x != -1:
                     vx = bx - ultimo_balon_x

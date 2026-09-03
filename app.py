@@ -28,9 +28,9 @@ if 'processed' not in st.session_state:
     st.session_state.metrics = None
     st.session_state.pop('task_id', None)
 
-# ------------------------------------------------------------------------------
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
-# ------------------------------------------------------------------------------
+
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
+
 st.set_page_config(
     page_title="TacticalVision - Analítica Amateur Pro",
     layout="wide",
@@ -320,9 +320,8 @@ def calcular_distribucion_tercios(df, home_team, away_team):
         f'{away_team} (%)': get_pcts_away(away_x)
     })
 
-# ------------------------------------------------------------------------------
-# 2. MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
-# ------------------------------------------------------------------------------
+
+# MOTOR DE SIMULACIÓN Y PROCESAMIENTO TÁCTICO
 
 def compute_distances_and_metrics(df, min_id_duration_frames=3):
     df = df.copy()
@@ -569,9 +568,9 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'ramas_df': pd.DataFrame(ramas_debug)
     }
 
-# ------------------------------------------------------------------------------
-# 3. INTERFAZ DE USUARIO (STREAMLIT)
-# ------------------------------------------------------------------------------
+
+# INTERFAZ DE USUARIO (STREAMLIT)
+
 st.sidebar.title("Panel de Control")
 
 if not st.session_state.processed:
@@ -709,7 +708,7 @@ if not st.session_state.processed:
 
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # ESCALADO ROBUSTO (Evita la acumulación en la parte superior del clip 2)
+                    # ESCALADO
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
@@ -719,11 +718,9 @@ if not st.session_state.processed:
                     valid_coords = raw_df[(raw_df['x'] > 0) & (raw_df['y'] > 0)]
 
                     if not valid_coords.empty and len(valid_coords) > 20:
-                        # Usar percentiles en lugar de min/max absolutos para omitir 'outliers'
                         min_x, max_x = valid_coords['x'].quantile(0.02), valid_coords['x'].quantile(0.98)
                         min_y, max_y = valid_coords['y'].quantile(0.02), valid_coords['y'].quantile(0.98)
 
-                        # Evitar división por cero si el rango es insignificante
                         range_x = (max_x - min_x) if (max_x - min_x) > 10.0 else 1.0
                         range_y = (max_y - min_y) if (max_y - min_y) > 10.0 else 1.0
 
