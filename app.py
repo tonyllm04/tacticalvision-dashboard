@@ -333,8 +333,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     
     if not ball_df.empty:
         full_ball = pd.DataFrame({'frame': frames_totales}).merge(ball_df, on='frame', how='left')
-        full_ball['x'] = full_ball['x'].interpolate(method='linear', limit=45)
-        full_ball['y'] = full_ball['y'].interpolate(method='linear', limit=45)
+        full_ball['x'] = full_ball['x'].interpolate(method='linear', limit=30)
+        full_ball['y'] = full_ball['y'].interpolate(method='linear', limit=30)
         
         full_ball['x'] = full_ball['x'].rolling(window=5, min_periods=1, center=True).mean()
         full_ball['y'] = full_ball['y'].rolling(window=5, min_periods=1, center=True).mean()
@@ -343,7 +343,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     else:
         ball_dict = {}
 
-    # 2. CÁLCULO REVISADO DE DISTANCIAS RECORRIDAS
+    # 2. FILTRADO DE JUGADORES Y DISTANCIAS REALES (Sin multiplicadores sintéticos)
     player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
     player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
@@ -353,13 +353,14 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
 
     players = df[player_mask].copy().sort_values(['id', 'frame'])
 
+    # Diferencia de posición en metros entre frames consecutivos por jugador
     players['dx'] = players.groupby('id')['x'].diff()
     players['dy'] = players.groupby('id')['y'].diff()
     players['distancia_m_raw'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
-    # UMBRALES AJUSTADOS: Se permite capturar trote fino y sprints acelerados
-    UMBRAL_SALTO = 2.5  # Permite movimiento rápido sin cortar saltos válidos
-    UMBRAL_RUIDO = 0.01 # 1 cm para recuperar todo el movimiento real acumulado
+    # UMBRALES MÉTRICOS (Metros reales por fotograma)
+    UMBRAL_SALTO = 1.2   # Descarta saltos > 1.2m por frame (errores de Tracking ID / cortes)
+    UMBRAL_RUIDO = 0.04  # Descarta temblores < 4 cm por frame (ruido de detección)
 
     players['distancia_m'] = players['distancia_m_raw']
     players.loc[players['distancia_m'] > UMBRAL_SALTO, 'distancia_m'] = 0.0
@@ -369,21 +370,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
-    # FACTOR DE COMPENSACIÓN POR OCULSIÓN (Ajusta la suma si no se detectan los 10 jugadores de campo siempre)
-    team_distances = {}
-    for team_name in ['home', 'away']:
-        team_players = players[players['team'] == team_name]
-        raw_dist = team_players['distancia_m'].sum()
-        
-        # Promedio de jugadores detectados por frame
-        avg_detected = team_players.groupby('frame')['id'].nunique().mean() if not team_players.empty else 10.0
-        if pd.isna(avg_detected) or avg_detected < 1.0:
-            avg_detected = 10.0
-            
-        # Escala según el número esperado de jugadores de campo (~10)
-        scale_factor = max(1.0, 10.0 / avg_detected)
-        team_distances[team_name] = raw_dist * min(scale_factor, 1.45)
-
+    # Suma directa sin factores de multiplicación
+    team_distances = players.groupby('team')['distancia_m'].sum().to_dict()
     player_distances = (
         players.groupby(['id', 'team'])['distancia_m']
         .sum()
@@ -404,128 +392,164 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away']) ** 2
     )
 
-    # 4. POSESIÓN ROBUSTA A CORTE DE CÁMARA Y PASE
-    total_frames = len(frames_totales) if len(frames_totales) > 0 else 1
-    detected_ball_frames = len(ball_dict)
+    # 4. POSESIÓN FRAME A FRAME
+    UMBRAL_CONTACTO = 2.5
+    UMBRAL_INERCIA = 5.0
+    MAX_FRAMES_INERCIA = 30
 
-    if (detected_ball_frames / float(total_frames)) < 0.02:
-        poss_home = 50.0
-        poss_away = 50.0
-        home_count, away_count, disputed_count, total_efectivo = 0, 0, total_frames, 0
-        ramas_debug, distancias_debug = [], []
-    else:
-        UMBRAL_CONTACTO = 4.5  
-        UMBRAL_INERCIA = 8.0
-        MAX_FRAMES_INERCIA = 35 # Permite mantener la posesión durante pases sostenidos
+    poseedor_actual_id = None
+    poseedor_actual_team = None
+    frames_inercia_restantes = 0
 
-        poseedor_actual_id = None
-        poseedor_actual_team = None
-        frames_inercia_restantes = 0
+    distancias_debug = []
+    ramas_debug = []
 
-        distancias_debug = []
-        ramas_debug = []
+    for f in frames_totales:
+        players_f = df[
+            (df['frame'] == f) & 
+            (df['team'].isin(['home', 'away'])) & 
+            (df['class'] == 'player')
+        ].copy()
 
-        for f in frames_totales:
-            players_f = df[
-                (df['frame'] == f) & 
-                (df['team'].isin(['home', 'away'])) & 
-                (df['class'] == 'player')
-            ].copy()
-
-            if players_f.empty:
-                decision_final = poseedor_actual_team if (poseedor_actual_team and frames_inercia_restantes > 0) else 'disputed'
-                if frames_inercia_restantes > 0: frames_inercia_restantes -= 1
-                ramas_debug.append({
-                    'frame': f, 'jugador_id': None, 'equipo_cercano': None, 'distancia': None,
-                    'poseedor_actual': poseedor_actual_team, 'rama': 'SIN_JUGADORES', 'decision_final': decision_final
-                })
-                continue
-
-            ball_pos = ball_dict.get(f)
-
-            if ball_pos is None:
-                if poseedor_actual_team is not None and frames_inercia_restantes > 0:
-                    rama = 'BALON_PERDIDO_INERCIA'
-                    decision_final = poseedor_actual_team
-                    frames_inercia_restantes -= 1
-                else:
-                    rama = 'DISPUTED'
-                    decision_final = 'disputed'
-                    poseedor_actual_team = None
-                    poseedor_actual_id = None
-                    frames_inercia_restantes = 0
-
-                ramas_debug.append({
-                    'frame': f, 'jugador_id': poseedor_actual_id, 'equipo_cercano': None, 'distancia': None,
-                    'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final
-                })
-                continue
-
-            bx, by = ball_pos['x'], ball_pos['y']
-            players_f['distancia'] = np.sqrt((players_f['x'] - bx) ** 2 + (players_f['y'] - by) ** 2)
-            closest = players_f.loc[players_f['distancia'].idxmin()]
-
-            jugador_id = closest['id']
-            equipo_cercano = closest['team']
-            distancia_minima = float(closest['distancia'])
-
-            distancias_debug.append({
-                'frame': f, 'id': jugador_id, 'team': equipo_cercano, 'distancia': distancia_minima
+        if players_f.empty:
+            ramas_debug.append({
+                'frame': f, 'jugador_id': None, 'equipo_cercano': None, 'distancia': None,
+                'poseedor_actual': poseedor_actual_team, 'rama': 'DISPUTED', 'decision_final': 'disputed'
             })
+            continue
 
-            if distancia_minima <= UMBRAL_CONTACTO:
-                rama = 'MANTENIMIENTO' if poseedor_actual_team == equipo_cercano else 'CAMBIO_EQUIPO'
+        ball_pos = ball_dict.get(f)
+
+        if ball_pos is None:
+            if poseedor_actual_team is not None and frames_inercia_restantes > 0:
+                rama = 'BALON_PERDIDO_INERCIA'
+                decision_final = poseedor_actual_team
+                frames_inercia_restantes -= 1
+            else:
+                rama = 'DISPUTED'
+                decision_final = 'disputed'
+                poseedor_actual_team = None
+                poseedor_actual_id = None
+                frames_inercia_restantes = 0
+
+            ramas_debug.append({
+                'frame': f, 'jugador_id': poseedor_actual_id, 'equipo_cercano': None, 'distancia': None,
+                'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final,
+                'umbral_contacto': UMBRAL_CONTACTO, 'umbral_inercia': UMBRAL_INERCIA
+            })
+            continue
+
+        bx, by = ball_pos['x'], ball_pos['y']
+        players_f['distancia'] = np.sqrt((players_f['x'] - bx) ** 2 + (players_f['y'] - by) ** 2)
+        closest = players_f.loc[players_f['distancia'].idxmin()]
+
+        jugador_id = closest['id']
+        equipo_cercano = closest['team']
+        distancia_minima = float(closest['distancia'])
+
+        distancias_debug.append({
+            'frame': f, 'id': jugador_id, 'team': equipo_cercano, 'distancia': distancia_minima
+        })
+
+        if distancia_minima <= UMBRAL_CONTACTO:
+            if poseedor_actual_team == equipo_cercano:
+                rama = 'MANTENIMIENTO'
+            elif poseedor_actual_team is not None:
+                rama = 'CAMBIO_EQUIPO'
+            else:
+                rama = 'ADQUISICION'
+
+            poseedor_actual_id = jugador_id
+            poseedor_actual_team = equipo_cercano
+            frames_inercia_restantes = MAX_FRAMES_INERCIA
+            decision_final = equipo_cercano
+
+        elif distancia_minima <= UMBRAL_INERCIA:
+            if poseedor_actual_team is not None and frames_inercia_restantes > 0:
+                rama = 'INERCIA'
+                decision_final = poseedor_actual_team
+                frames_inercia_restantes -= 1
+            else:
+                rama = 'ADQUISICION_INICIAL'
                 poseedor_actual_id = jugador_id
                 poseedor_actual_team = equipo_cercano
                 frames_inercia_restantes = MAX_FRAMES_INERCIA
                 decision_final = equipo_cercano
 
-            elif distancia_minima <= UMBRAL_INERCIA:
-                if poseedor_actual_team is not None and frames_inercia_restantes > 0:
-                    rama = 'INERCIA'
-                    decision_final = poseedor_actual_team
-                    frames_inercia_restantes -= 1
-                else:
-                    rama = 'ADQUISICION_INICIAL'
-                    poseedor_actual_id = jugador_id
-                    poseedor_actual_team = equipo_cercano
-                    frames_inercia_restantes = MAX_FRAMES_INERCIA
-                    decision_final = equipo_cercano
-            else:
-                if poseedor_actual_team is not None and frames_inercia_restantes > 0:
-                    rama = 'INERCIA_DECAIMIENTO'
-                    decision_final = poseedor_actual_team
-                    frames_inercia_restantes -= 1
-                else:
-                    rama = 'DISPUTED'
-                    decision_final = 'disputed'
-                    poseedor_actual_team = None
-                    poseedor_actual_id = None
-                    frames_inercia_restantes = 0
-
-            ramas_debug.append({
-                'frame': f, 'jugador_id': jugador_id, 'equipo_cercano': equipo_cercano, 'distancia': distancia_minima,
-                'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final
-            })
-
-        decision_series = pd.Series([item['decision_final'] for item in ramas_debug])
-        counts = decision_series.value_counts().to_dict()
-
-        home_count = counts.get('home', 0)
-        away_count = counts.get('away', 0)
-        disputed_count = counts.get('disputed', 0)
-
-        total_efectivo = home_count + away_count
-
-        if total_efectivo > 0:
-            poss_home = round(100 * home_count / float(total_efectivo))
-            poss_away = round(100 * away_count / float(total_efectivo))
         else:
-            poss_home = 50.0
-            poss_away = 50.0
+            if poseedor_actual_team is not None and frames_inercia_restantes > 0:
+                rama = 'INERCIA_DECAIMIENTO'
+                decision_final = poseedor_actual_team
+                frames_inercia_restantes -= 1
+            else:
+                rama = 'DISPUTED'
+                decision_final = 'disputed'
+                poseedor_actual_team = None
+                poseedor_actual_id = None
+                frames_inercia_restantes = 0
 
+        ramas_debug.append({
+            'frame': f, 'jugador_id': jugador_id, 'equipo_cercano': equipo_cercano, 'distancia': distancia_minima,
+            'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final,
+            'umbral_contacto': UMBRAL_CONTACTO, 'umbral_inercia': UMBRAL_INERCIA
+        })
+
+    # 5. AJUSTES RETROACTIVOS Y FINALES
+    primer_poseedor = next((item['decision_final'] for item in ramas_debug if item['decision_final'] in ['home', 'away']), None)
+    if primer_poseedor:
+        for item in ramas_debug:
+            if item['decision_final'] == 'disputed' and item['poseedor_actual'] is None:
+                item['rama'] = 'INICIALIZACION_RETROACTIVA'
+                item['decision_final'] = primer_poseedor
+            else:
+                break
+
+    ultimo_poseedor = None
+    for item in ramas_debug:
+        if item['decision_final'] in ['home', 'away']:
+            ultimo_poseedor = item['decision_final']
+        elif item['decision_final'] == 'disputed' and ultimo_poseedor:
+            item['rama'] = 'PROPAGACION_FINAL'
+            item['decision_final'] = ultimo_poseedor
+
+    indices_cambio = []
+    for i in range(1, len(ramas_debug)):
+        prev = ramas_debug[i-1]['decision_final']
+        curr = ramas_debug[i]['decision_final']
+        if prev in ['home', 'away'] and curr in ['home', 'away'] and prev != curr:
+            indices_cambio.append(i)
+
+    for idx in indices_cambio:
+        equipo_nuevo = ramas_debug[idx]['decision_final']
+        for retro in range(1, 25):
+            idx_prev = idx - retro
+            if idx_prev >= 0 and ramas_debug[idx_prev]['rama'] in ['INERCIA', 'BALON_PERDIDO_INERCIA', 'INERCIA_DECAIMIENTO']:
+                ramas_debug[idx_prev]['decision_final'] = equipo_nuevo
+                ramas_debug[idx_prev]['rama'] = 'TRANSICION_VUELO'
+            else:
+                break
+
+    # 6. CÁLCULO FINAL DE MÉTRICAS Y PORCENTAJES
+    decision_series = pd.Series([item['decision_final'] for item in ramas_debug])
+    counts = decision_series.value_counts().to_dict()
+
+    home_count = counts.get('home', 0)
+    away_count = counts.get('away', 0)
+    disputed_count = counts.get('disputed', 0)
+
+    total_efectivo = home_count + away_count
+
+    if total_efectivo > 0:
+        poss_home = round(100 * home_count / total_efectivo)
+        poss_away = round(100 * away_count / total_efectivo)
+    else:
+        poss_home = 0
+        poss_away = 0
+
+    # 7. DISTRIBUCIÓN TERRITORIAL
     home_name = st.session_state.get('home_team', 'Local')
     away_name = st.session_state.get('away_team', 'Visitante')
+    
     zone_df = calcular_distribucion_tercios(df, home_name, away_name)
 
     return {
@@ -544,6 +568,7 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'distancias_debug': pd.DataFrame(distancias_debug),
         'ramas_df': pd.DataFrame(ramas_debug)
     }
+
 # ------------------------------------------------------------------------------
 # 3. INTERFAZ DE USUARIO (STREAMLIT)
 # ------------------------------------------------------------------------------
