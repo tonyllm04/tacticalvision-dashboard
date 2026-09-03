@@ -327,7 +327,7 @@ def calcular_distribucion_tercios(df, home_team, away_team):
 def compute_distances_and_metrics(df, min_id_duration_frames=3):
     df = df.copy()
 
-    # 1. INTERPOLACIÓN DE BALÓN
+    # 1. INTERPOLACIÓN Y SUAVIZADO DEL BALÓN
     frames_totales = sorted(df['frame'].unique())
     ball_df = df[df['class'] == 'ball'][['frame', 'x', 'y']].drop_duplicates('frame')
     
@@ -335,11 +335,16 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         full_ball = pd.DataFrame({'frame': frames_totales}).merge(ball_df, on='frame', how='left')
         full_ball['x'] = full_ball['x'].interpolate(method='linear', limit=30)
         full_ball['y'] = full_ball['y'].interpolate(method='linear', limit=30)
+        
+        # Filtro de media móvil para estabilizar la posición del balón entre tomas
+        full_ball['x'] = full_ball['x'].rolling(window=3, min_periods=1, center=True).mean()
+        full_ball['y'] = full_ball['y'].rolling(window=3, min_periods=1, center=True).mean()
+        
         ball_dict = full_ball.dropna(subset=['x', 'y']).set_index('frame')[['x', 'y']].to_dict('index')
     else:
         ball_dict = {}
 
-    # 2. FILTRADO DE JUGADORES Y DISTANCIAS
+    # 2. FILTRADO DE JUGADORES Y DISTANCIAS MEJORADO
     player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
     player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
@@ -353,8 +358,9 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     players['dy'] = players.groupby('id')['y'].diff()
     players['distancia_m_raw'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
-    UMBRAL_SALTO = 1.2
-    UMBRAL_RUIDO = 0.04
+    # Umbrales ajustados para descartar saltos por id_switches de YOLO
+    UMBRAL_SALTO = 0.8  
+    UMBRAL_RUIDO = 0.05 
 
     players['distancia_m'] = players['distancia_m_raw']
     players.loc[players['distancia_m'] > UMBRAL_SALTO, 'distancia_m'] = 0.0
@@ -385,11 +391,10 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away']) ** 2
     )
 
-    # 4. POSESIÓN CONTROLADA Y DEFENSA ANTE BALÓN PERDIDO
+    # 4. POSESIÓN ESTABILIZADA POR INERCIA DE MANTENIMIENTO
     total_frames = len(frames_totales) if len(frames_totales) > 0 else 1
     detected_ball_frames = len(ball_dict)
 
-    # Si la detección del balón cae por debajo del 5% de los frames del vídeo
     if (detected_ball_frames / float(total_frames)) < 0.05:
         poss_home = 0.0
         poss_away = 0.0
@@ -400,9 +405,9 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         ramas_debug = []
         distancias_debug = []
     else:
-        UMBRAL_CONTACTO = 2.5
-        UMBRAL_INERCIA = 5.0
-        MAX_FRAMES_INERCIA = 30
+        UMBRAL_CONTACTO = 3.5  # Ampliado ligeramente para compensar distorsión de perspectiva
+        UMBRAL_INERCIA = 6.0
+        MAX_FRAMES_INERCIA = 25
 
         poseedor_actual_id = None
         poseedor_actual_team = None
@@ -475,7 +480,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
                     poseedor_actual_team = equipo_cercano
                     frames_inercia_restantes = MAX_FRAMES_INERCIA
                     decision_final = equipo_cercano
-
             else:
                 if poseedor_actual_team is not None and frames_inercia_restantes > 0:
                     rama = 'INERCIA_DECAIMIENTO'
@@ -493,15 +497,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
                 'poseedor_actual': poseedor_actual_team, 'rama': rama, 'decision_final': decision_final
             })
 
-        # Ajustes retroactivos
-        primer_poseedor = next((item['decision_final'] for item in ramas_debug if item['decision_final'] in ['home', 'away']), None)
-        if primer_poseedor:
-            for item in ramas_debug:
-                if item['decision_final'] == 'disputed' and item['poseedor_actual'] is None:
-                    item['decision_final'] = primer_poseedor
-                else:
-                    break
-
         decision_series = pd.Series([item['decision_final'] for item in ramas_debug])
         counts = decision_series.value_counts().to_dict()
 
@@ -518,7 +513,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             poss_home = 0.0
             poss_away = 0.0
 
-    # Distribución territorial
     home_name = st.session_state.get('home_team', 'Local')
     away_name = st.session_state.get('away_team', 'Visitante')
     zone_df = calcular_distribucion_tercios(df, home_name, away_name)
@@ -680,7 +674,7 @@ if not st.session_state.processed:
 
                             raw_df = pd.concat([raw_df, ball_rows], ignore_index=True)
 
-                    # ESCALADO ADAPTATIVO
+                    # ESCALADO ROBUSTO (Evita la acumulación en la parte superior del clip 2)
                     FIELD_LENGTH = 105.0
                     FIELD_WIDTH = 68.0
 
@@ -689,20 +683,22 @@ if not st.session_state.processed:
 
                     valid_coords = raw_df[(raw_df['x'] > 0) & (raw_df['y'] > 0)]
 
-                    if not valid_coords.empty:
-                        min_x, max_x = valid_coords['x'].min(), valid_coords['x'].max()
-                        min_y, max_y = valid_coords['y'].min(), valid_coords['y'].max()
+                    if not valid_coords.empty and len(valid_coords) > 20:
+                        # Usar percentiles en lugar de min/max absolutos para omitir 'outliers'
+                        min_x, max_x = valid_coords['x'].quantile(0.02), valid_coords['x'].quantile(0.98)
+                        min_y, max_y = valid_coords['y'].quantile(0.02), valid_coords['y'].quantile(0.98)
 
-                        if abs(max_x - min_x) > 5.0:
-                            raw_df['x'] = ((raw_df['x'] - min_x) / (max_x - min_x)) * FIELD_LENGTH
-                        else:
-                            raw_df['x'] = FIELD_LENGTH / 2.0
+                        # Evitar división por cero si el rango es insignificante
+                        range_x = (max_x - min_x) if (max_x - min_x) > 10.0 else 1.0
+                        range_y = (max_y - min_y) if (max_y - min_y) > 10.0 else 1.0
 
-                        if abs(max_y - min_y) > 5.0:
-                            raw_df['y'] = ((raw_df['y'] - min_y) / (max_y - min_y)) * FIELD_WIDTH
-                        else:
-                            raw_df['y'] = FIELD_WIDTH / 2.0
+                        raw_df['x'] = ((raw_df['x'] - min_x) / range_x) * FIELD_LENGTH
+                        raw_df['y'] = ((raw_df['y'] - min_y) / range_y) * FIELD_WIDTH
+                    else:
+                        raw_df['x'] = FIELD_LENGTH / 2.0
+                        raw_df['y'] = FIELD_WIDTH / 2.0
 
+                    # Asegurar límites físicos de la cancha
                     raw_df['x'] = raw_df['x'].clip(0, FIELD_LENGTH)
                     raw_df['y'] = raw_df['y'].clip(0, FIELD_WIDTH)
 
