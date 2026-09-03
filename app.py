@@ -825,6 +825,8 @@ else:
                 <h4>Centroide y Distancia Inter-Equipo</h4>
                 <ul>
                     <li><b>Distancia Inter-Centroides actual:</b> <code>{curr_inter_dist:.2f} m</code></li>
+                    <li>Una distancia inter-equipo reducida (&lt; 20m) indica una fase de alta presión o bloqueo denso. Una distancia amplia (&gt; 30m) evidencia estiramiento entre líneas o transición limpia.</li>
+                    <li>Las estrellas (★) representan el <b>Centro de Masas Posicional</b> de cada plantilla en este instante.</li>
                 </ul>
             </div>
             """, unsafe_allow_html=True)
@@ -844,7 +846,10 @@ else:
             st.markdown(f"""
             <div class="tactical-card">
                 <h4>Análisis Posicional: {heatmap_choice}</h4>
-                <p>Las zonas más densas muestran las áreas de mayor control y permanencia sobre el terreno.</p>
+                <p>Muestra los núcleos de presencia constante de los jugadores a lo largo del clip.</p>
+                <ul>
+                    <li><b>Saturación en Ocupación:</b> Las zonas más brillantes señalan las zonas donde más presencia tienen los equipos.</li>
+                </ul>
             </div>
             """, unsafe_allow_html=True)
 
@@ -870,8 +875,19 @@ else:
         st.markdown("---")
         
         st.subheader("Distribución Territorial del Control de Juego")
-        zone_df = metrics.get('zone_df', pd.DataFrame()) 
-        st.dataframe(zone_df, use_container_width=True, hide_index=True)
+        zone_col1, zone_col2 = st.columns([1, 1.2])
+                
+        with zone_col1:
+            zone_df = metrics.get('zone_df', pd.DataFrame()) 
+            st.dataframe(zone_df, use_container_width=True, hide_index=True)
+            
+        with zone_col2:
+            st.info("""
+            **Guía de Interpretación Táctica para el Entrenador:**
+
+            * **Distancia Inter-Centroides:** Mide la separación en metros entre el centro de gravedad/punto medio del equipo local y el del visitante.
+            * **Distribución Territorial por Tercios:** Identifica el porcentaje de presencia de cada plantilla en los tercios de campo defensivo, medio y ofensivo.
+            """)
 
     st.markdown("---")
 
