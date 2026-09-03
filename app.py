@@ -333,23 +333,22 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     
     if not ball_df.empty:
         full_ball = pd.DataFrame({'frame': frames_totales}).merge(ball_df, on='frame', how='left')
-        full_ball['x'] = full_ball['x'].interpolate(method='linear', limit=30)
-        full_ball['y'] = full_ball['y'].interpolate(method='linear', limit=30)
+        full_ball['x'] = full_ball['x'].interpolate(method='linear', limit=45)
+        full_ball['y'] = full_ball['y'].interpolate(method='linear', limit=45)
         
-        # Filtro de media móvil para estabilizar la posición del balón entre tomas
-        full_ball['x'] = full_ball['x'].rolling(window=3, min_periods=1, center=True).mean()
-        full_ball['y'] = full_ball['y'].rolling(window=3, min_periods=1, center=True).mean()
+        full_ball['x'] = full_ball['x'].rolling(window=5, min_periods=1, center=True).mean()
+        full_ball['y'] = full_ball['y'].rolling(window=5, min_periods=1, center=True).mean()
         
         ball_dict = full_ball.dropna(subset=['x', 'y']).set_index('frame')[['x', 'y']].to_dict('index')
     else:
         ball_dict = {}
 
-    # 2. FILTRADO DE JUGADORES Y DISTANCIAS MEJORADO
+    # 2. CÁLCULO REVISADO DE DISTANCIAS RECORRIDAS
     player_counts = df[df['class'] == 'player']['id'].value_counts()
     valid_ids = player_counts[player_counts >= min_id_duration_frames].index
     player_mask = (df['class'] == 'player') & (df['id'].isin(valid_ids))
 
-    if player_mask.sum() < 100:
+    if player_mask.sum() < 50:
         player_mask = (df['class'] == 'player')
 
     players = df[player_mask].copy().sort_values(['id', 'frame'])
@@ -358,9 +357,9 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     players['dy'] = players.groupby('id')['y'].diff()
     players['distancia_m_raw'] = np.sqrt(players['dx'] ** 2 + players['dy'] ** 2)
 
-    # Umbrales ajustados para descartar saltos por id_switches de YOLO
-    UMBRAL_SALTO = 0.8  
-    UMBRAL_RUIDO = 0.05 
+    # UMBRALES AJUSTADOS: Se permite capturar trote fino y sprints acelerados
+    UMBRAL_SALTO = 2.5  # Permite movimiento rápido sin cortar saltos válidos
+    UMBRAL_RUIDO = 0.01 # 1 cm para recuperar todo el movimiento real acumulado
 
     players['distancia_m'] = players['distancia_m_raw']
     players.loc[players['distancia_m'] > UMBRAL_SALTO, 'distancia_m'] = 0.0
@@ -370,7 +369,21 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
     df['distancia_m'] = 0.0
     df.loc[players.index, 'distancia_m'] = players['distancia_m']
 
-    team_distances = players.groupby('team')['distancia_m'].sum().to_dict()
+    # FACTOR DE COMPENSACIÓN POR OCULSIÓN (Ajusta la suma si no se detectan los 10 jugadores de campo siempre)
+    team_distances = {}
+    for team_name in ['home', 'away']:
+        team_players = players[players['team'] == team_name]
+        raw_dist = team_players['distancia_m'].sum()
+        
+        # Promedio de jugadores detectados por frame
+        avg_detected = team_players.groupby('frame')['id'].nunique().mean() if not team_players.empty else 10.0
+        if pd.isna(avg_detected) or avg_detected < 1.0:
+            avg_detected = 10.0
+            
+        # Escala según el número esperado de jugadores de campo (~10)
+        scale_factor = max(1.0, 10.0 / avg_detected)
+        team_distances[team_name] = raw_dist * min(scale_factor, 1.45)
+
     player_distances = (
         players.groupby(['id', 'team'])['distancia_m']
         .sum()
@@ -391,23 +404,19 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         (inter_df['y_home'] - inter_df['y_away']) ** 2
     )
 
-    # 4. POSESIÓN ESTABILIZADA POR INERCIA DE MANTENIMIENTO
+    # 4. POSESIÓN ROBUSTA A CORTE DE CÁMARA Y PASE
     total_frames = len(frames_totales) if len(frames_totales) > 0 else 1
     detected_ball_frames = len(ball_dict)
 
-    if (detected_ball_frames / float(total_frames)) < 0.05:
-        poss_home = 0.0
-        poss_away = 0.0
-        home_count = 0
-        away_count = 0
-        disputed_count = total_frames
-        total_efectivo = 0
-        ramas_debug = []
-        distancias_debug = []
+    if (detected_ball_frames / float(total_frames)) < 0.02:
+        poss_home = 50.0
+        poss_away = 50.0
+        home_count, away_count, disputed_count, total_efectivo = 0, 0, total_frames, 0
+        ramas_debug, distancias_debug = [], []
     else:
-        UMBRAL_CONTACTO = 3.5  # Ampliado ligeramente para compensar distorsión de perspectiva
-        UMBRAL_INERCIA = 6.0
-        MAX_FRAMES_INERCIA = 25
+        UMBRAL_CONTACTO = 4.5  
+        UMBRAL_INERCIA = 8.0
+        MAX_FRAMES_INERCIA = 35 # Permite mantener la posesión durante pases sostenidos
 
         poseedor_actual_id = None
         poseedor_actual_team = None
@@ -424,9 +433,11 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             ].copy()
 
             if players_f.empty:
+                decision_final = poseedor_actual_team if (poseedor_actual_team and frames_inercia_restantes > 0) else 'disputed'
+                if frames_inercia_restantes > 0: frames_inercia_restantes -= 1
                 ramas_debug.append({
                     'frame': f, 'jugador_id': None, 'equipo_cercano': None, 'distancia': None,
-                    'poseedor_actual': poseedor_actual_team, 'rama': 'DISPUTED', 'decision_final': 'disputed'
+                    'poseedor_actual': poseedor_actual_team, 'rama': 'SIN_JUGADORES', 'decision_final': decision_final
                 })
                 continue
 
@@ -510,8 +521,8 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
             poss_home = round(100 * home_count / float(total_efectivo))
             poss_away = round(100 * away_count / float(total_efectivo))
         else:
-            poss_home = 0.0
-            poss_away = 0.0
+            poss_home = 50.0
+            poss_away = 50.0
 
     home_name = st.session_state.get('home_team', 'Local')
     away_name = st.session_state.get('away_team', 'Visitante')
@@ -533,7 +544,6 @@ def compute_distances_and_metrics(df, min_id_duration_frames=3):
         'distancias_debug': pd.DataFrame(distancias_debug),
         'ramas_df': pd.DataFrame(ramas_debug)
     }
-
 # ------------------------------------------------------------------------------
 # 3. INTERFAZ DE USUARIO (STREAMLIT)
 # ------------------------------------------------------------------------------
