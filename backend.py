@@ -35,8 +35,18 @@ def tarea_procesamiento(task_id: str, video_bytes: bytes, filename: str):
             csv_raw = os.path.join(tmpdir, 'raw.csv')
             csv_filtrado = os.path.join(tmpdir, 'filtrado.csv')
             video_ia = os.path.join(tmpdir, 'ia.mp4')
+            
+            # Definimos la carpeta de camisetas DENTRO de la carpeta temporal aislada
+            carpeta_camisetas_tmp = os.path.join(tmpdir, 'dataset_camisetas_limpias')
 
-            generar_dataset_deteccion(video_path, csv_raw, max_frames=3600)
+            # Pasamos la carpeta temporal como argumento
+            generar_dataset_deteccion(
+                video_path, 
+                csv_raw, 
+                carpeta_camisetas=carpeta_camisetas_tmp, 
+                max_frames=3600
+            )
+            
             procesar_y_limpiar_dataset(video_path, csv_raw, video_ia, csv_filtrado)
 
             df = pd.read_csv(csv_filtrado)
@@ -50,7 +60,7 @@ async def iniciar_procesamiento(video: UploadFile = File(...)):
     TAREAS[task_id] = {"status": "processing"}
     
     contenido = await video.read()
-    
+
     # Ejecuta la tarea en un hilo secundario de CPU para no bloquear la API
     asyncio.create_task(
         run_in_threadpool(tarea_procesamiento, task_id, contenido, video.filename)
