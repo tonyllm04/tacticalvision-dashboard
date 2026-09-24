@@ -6,6 +6,7 @@ import os
 from sklearn.cluster import KMeans
 
 def es_dentro_terreno_juego(caja, ancho_vid, alto_vid):
+    # CORREGIDO: Acepta las 4 coordenadas [x1, y1, x2, y2]
     x1, y1, x2, y2 = caja
     pie_y = y2
     pie_x = (x1 + x2) // 2
@@ -19,7 +20,7 @@ def clasificar_equipos_kmeans(df_detecciones, video_path):
     caracteristicas_color = []
     indices = []
 
-    # Abrir el vídeo y cerrar de forma limpia
+    # Abrir el vídeo de forma independiente
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         return df_detecciones
@@ -29,7 +30,6 @@ def clasificar_equipos_kmeans(df_detecciones, video_path):
         cap.set(cv2.CAP_PROP_POS_FRAMES, f_num)
         ret, frame = cap.read()
         if ret and frame is not None:
-            # Procesar bbox
             caja = list(map(int, row['bbox'].replace('(', '').replace(')', '').split(','))) if isinstance(row['bbox'], str) else [row['x1'], row['y1'], row['x2'], row['y2']]
             x1, y1, x2, y2 = caja
             crop = frame[y1:y2, x1:x2]
@@ -41,7 +41,7 @@ def clasificar_equipos_kmeans(df_detecciones, video_path):
                     caracteristicas_color.append(color_promedio)
                     indices.append(idx)
 
-    # REQUISITO EN WINDOWS: Liberar explícitamente el archivo
+    # Liberación requerida en Windows
     cap.release()
 
     if len(caracteristicas_color) >= 2:
@@ -85,7 +85,8 @@ def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_sali
     if 'bbox' not in df.columns and 'coords_caja' in df.columns:
         df['bbox'] = df['coords_caja']
 
-    df = clasificar_equipos_kmeans(df, cap)
+    # CORREGIDO: Pasar 'video_original' (ruta string) en lugar del objeto VideoCapture 'cap'
+    df = clasificar_equipos_kmeans(df, video_original)
 
     for idx in df['id'].unique():
         sub_df = df[df['id'] == idx]
@@ -132,7 +133,6 @@ def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_sali
                 
                 es_punto_penalti = False
                 if bx_temp != -1 and by_temp != -1:
-
                     for punto in PUNTOS_PENALTI_MANUALES:
                         distancia = np.sqrt((bx_temp - punto["x"])**2 + (by_temp - punto["y"])**2)
                         if distancia <= RADIO_EXCLUSION_PENALTI:
