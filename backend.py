@@ -28,18 +28,17 @@ TAREAS = {}
 def tarea_procesamiento(task_id: str, video_bytes: bytes, filename: str):
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            video_path = os.path.join(tmpdir, filename)
+            # Usamos un nombre fijo limpio para evitar problemas de rutas en Windows
+            video_path = os.path.join(tmpdir, "video_input.mp4")
+            
             with open(video_path, 'wb') as f:
                 f.write(video_bytes)
 
             csv_raw = os.path.join(tmpdir, 'raw.csv')
             csv_filtrado = os.path.join(tmpdir, 'filtrado.csv')
             video_ia = os.path.join(tmpdir, 'ia.mp4')
-            
-            # Definimos la carpeta de camisetas DENTRO de la carpeta temporal aislada
             carpeta_camisetas_tmp = os.path.join(tmpdir, 'dataset_camisetas_limpias')
 
-            # Pasamos la carpeta temporal como argumento
             generar_dataset_deteccion(
                 video_path, 
                 csv_raw, 
