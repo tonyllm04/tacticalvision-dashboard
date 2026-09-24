@@ -5,6 +5,10 @@ import os
 import csv
 from ultralytics import YOLO
 
+carpeta_camisetas = "dataset_camisetas_limpias"
+if not os.path.exists(carpeta_camisetas):
+    os.makedirs(carpeta_camisetas)
+
 def extraer_torso_proporcional(frame, box):
     """
     Extrae el tercio superior del cuerpo del jugador basándose en la caja de detección.
@@ -29,11 +33,7 @@ def extraer_torso_proporcional(frame, box):
         
     return None
 
-def generar_dataset_deteccion(video_path, csv_output, carpeta_camisetas="dataset_camisetas_limpias", max_frames=3600):
-    # Crear la carpeta si no existe (funciona en local y dentro de tmpdir)
-    if not os.path.exists(carpeta_camisetas):
-        os.makedirs(carpeta_camisetas, exist_ok=True)
-
+def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
     print(f"Cargando YOLOv8m para personas y balón...")
     model = YOLO("yolov8m.pt") 
 
@@ -126,8 +126,7 @@ def generar_dataset_deteccion(video_path, csv_output, carpeta_camisetas="dataset
                         nombre_archivo_camiseta = "None"
 
                         if recorte_camiseta is not None and recorte_camiseta.size > 0:
-                            # Uso de os.path.join para evitar WinError 267 con barras
-                            nombre_archivo_camiseta = os.path.join(carpeta_camisetas, f"f{frame_count}_id{idx}.jpg")
+                            nombre_archivo_camiseta = f"{carpeta_camisetas}/f{frame_count}_id{idx}.jpg"
                             cv2.imwrite(nombre_archivo_camiseta, recorte_camiseta)
 
                         writer.writerow([
