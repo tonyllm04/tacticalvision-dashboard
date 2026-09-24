@@ -6,7 +6,7 @@ import os
 from sklearn.cluster import KMeans
 
 def es_dentro_terreno_juego(caja, ancho_vid, alto_vid):
-    x1, x2, y2 = caja
+    x1, y1, x2, y2 = caja
     pie_y = y2
     pie_x = (x1 + x2) // 2
     return (alto_vid * 0.12 < pie_y < alto_vid * 0.98) and (ancho_vid * 0.02 < pie_x < ancho_vid * 0.98)
