@@ -5,10 +5,6 @@ import os
 import csv
 from ultralytics import YOLO
 
-carpeta_camisetas = "dataset_camisetas_limpias"
-if not os.path.exists(carpeta_camisetas):
-    os.makedirs(carpeta_camisetas)
-
 def extraer_torso_proporcional(frame, box):
     """
     Extrae el tercio superior del cuerpo del jugador basándose en la caja de detección.
@@ -33,7 +29,11 @@ def extraer_torso_proporcional(frame, box):
         
     return None
 
-def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
+def generar_dataset_deteccion(video_path, csv_output, carpeta_camisetas="dataset_camisetas_limpias", max_frames=3600):
+    # Crear la carpeta si no existe (funciona en local y dentro de tmpdir)
+    if not os.path.exists(carpeta_camisetas):
+        os.makedirs(carpeta_camisetas, exist_ok=True)
+
     print(f"Cargando YOLOv8m para personas y balón...")
     model = YOLO("yolov8m.pt") 
 
@@ -92,7 +92,10 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                     cls_id = int(box_det.cls[0])
 
                     if cls_id == 32:  # Balón
-                        bx1, by1, bx2, by2 = box_det.xyxy.int().cpu().tolist()[0]
+                        # Extraer directo el array de 4 valores de la primera caja
+                        cajas_balon = box_det.xyxy[0].cpu().numpy().astype(int)
+                        bx1, by1, bx2, by2 = cajas_balon[:4]  # Aseguramos exactamente 4 valores
+                        
                         bx = int((bx1 + bx2) / 2)
                         by = int((by1 + by2) / 2)
                         balon_detectado_este_frame = True
@@ -126,7 +129,8 @@ def generar_dataset_deteccion(video_path, csv_output, max_frames=3600):
                         nombre_archivo_camiseta = "None"
 
                         if recorte_camiseta is not None and recorte_camiseta.size > 0:
-                            nombre_archivo_camiseta = f"{carpeta_camisetas}/f{frame_count}_id{idx}.jpg"
+                            # Uso de os.path.join para evitar WinError 267 con barras
+                            nombre_archivo_camiseta = os.path.join(carpeta_camisetas, f"f{frame_count}_id{idx}.jpg")
                             cv2.imwrite(nombre_archivo_camiseta, recorte_camiseta)
 
                         writer.writerow([
