@@ -6,13 +6,15 @@ import os
 from sklearn.cluster import KMeans
 
 def es_dentro_terreno_juego(caja, ancho_vid, alto_vid):
-    # CORREGIDO: Acepta las 4 coordenadas [x1, y1, x2, y2]
     x1, y1, x2, y2 = caja
     pie_y = y2
     pie_x = (x1 + x2) // 2
     return (alto_vid * 0.12 < pie_y < alto_vid * 0.98) and (ancho_vid * 0.02 < pie_x < ancho_vid * 0.98)
 
-def clasificar_equipos_kmeans(df_detecciones, video_path):
+def clasificar_equipos_kmeans(df_detecciones, cap):
+    """
+    Agrupa dinámicamente los colores dominantes de los jugadores en 2 clústeres K-Means
+    """
     jugadores = df_detecciones[df_detecciones['rol_equipo'] == 'Jugador'] if 'rol_equipo' in df_detecciones.columns else df_detecciones
     if jugadores.empty:
         return df_detecciones
@@ -20,29 +22,20 @@ def clasificar_equipos_kmeans(df_detecciones, video_path):
     caracteristicas_color = []
     indices = []
 
-    # Abrir el vídeo de forma independiente
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        return df_detecciones
-
     for idx, row in jugadores.iterrows():
         f_num = int(row['frame'])
         cap.set(cv2.CAP_PROP_POS_FRAMES, f_num)
         ret, frame = cap.read()
-        if ret and frame is not None:
+        if ret:
             caja = list(map(int, row['bbox'].replace('(', '').replace(')', '').split(','))) if isinstance(row['bbox'], str) else [row['x1'], row['y1'], row['x2'], row['y2']]
             x1, y1, x2, y2 = caja
             crop = frame[y1:y2, x1:x2]
             if crop.size > 0:
                 h, w, _ = crop.shape
                 torso = crop[int(h*0.3):int(h*0.7), :]
-                if torso.size > 0:
-                    color_promedio = torso.mean(axis=(0,1))
-                    caracteristicas_color.append(color_promedio)
-                    indices.append(idx)
-
-    # Liberación requerida en Windows
-    cap.release()
+                color_promedio = torso.mean(axis=(0,1))
+                caracteristicas_color.append(color_promedio)
+                indices.append(idx)
 
     if len(caracteristicas_color) >= 2:
         kmeans = KMeans(n_clusters=2, random_state=42, n_init=5).fit(caracteristicas_color)
@@ -85,8 +78,7 @@ def procesar_y_limpiar_dataset(video_original, csv_datos, video_salida, csv_sali
     if 'bbox' not in df.columns and 'coords_caja' in df.columns:
         df['bbox'] = df['coords_caja']
 
-    # CORREGIDO: Pasar 'video_original' (ruta string) en lugar del objeto VideoCapture 'cap'
-    df = clasificar_equipos_kmeans(df, video_original)
+    df = clasificar_equipos_kmeans(df, cap)
 
     for idx in df['id'].unique():
         sub_df = df[df['id'] == idx]
